@@ -685,6 +685,7 @@ namespace NavalCommand::TacticalDisplay
 				if (auto exact = std::get_if<Physics::Api::Position>(&observation->Kinematics.Position))
 				{
 					ImGui::Text("Exact: %.5f, %.5f", exact->Latitude.Value, exact->Longitude.Value);
+					ImGui::Text("Elevation: %.1f m", exact->Elevation.Value);
 				}
 				else
 				{
@@ -704,6 +705,14 @@ namespace NavalCommand::TacticalDisplay
 					else
 					{
 						ImGui::TextUnformatted("Longitude unknown; not plotted");
+					}
+					if (partial.Elevation)
+					{
+						ImGui::Text("Elevation: %.1f m", partial.Elevation->Value);
+					}
+					else
+					{
+						ImGui::TextUnformatted("Elevation unknown");
 					}
 					if (partial.ErrorEllipse)
 					{
@@ -745,6 +754,7 @@ namespace NavalCommand::TacticalDisplay
 				if (unit->Kinematics.Position)
 				{
 					ImGui::Text("Position: %.5f, %.5f", unit->Kinematics.Position->Latitude.Value, unit->Kinematics.Position->Longitude.Value);
+					ImGui::Text("Elevation: %.1f m", unit->Kinematics.Position->Elevation.Value);
 				}
 				if (unit->Kinematics.Speed)
 				{
