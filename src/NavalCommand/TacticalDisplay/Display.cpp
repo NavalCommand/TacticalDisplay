@@ -9,6 +9,8 @@
 #include <imgui_impl_win32.h>
 #include <mutex>
 #include <numbers>
+#include <string>
+#include <vector>
 
 #ifdef GetCurrentTime
 #undef GetCurrentTime
@@ -44,26 +46,211 @@ namespace NavalCommand::TacticalDisplay
 			return DefWindowProcW(window, message, parameter, detail);
 		}
 
-		const char* Classification(Units::Api::Classification classification)
+		const char* SubCategoryName(Classification::Api::SubCategory subCategory)
 		{
-			switch (classification)
+			switch (subCategory)
 			{
-			case Units::Api::Classification::FixedWingAircraft:
+			case Classification::Api::SubCategory::FixedWingAircraft:
 				return "Fixed wing aircraft";
-			case Units::Api::Classification::RotaryWingAircraft:
+			case Classification::Api::SubCategory::RotaryWingAircraft:
 				return "Rotary wing aircraft";
-			case Units::Api::Classification::SurfaceVessel:
+			case Classification::Api::SubCategory::TiltRotorAircraft:
+				return "Tilt rotor aircraft";
+			case Classification::Api::SubCategory::CruiseMissile:
+				return "Cruise missile";
+			case Classification::Api::SubCategory::BallisticMissile:
+				return "Ballistic missile";
+			case Classification::Api::SubCategory::AircraftCarrier:
+				return "Aircraft carrier";
+			case Classification::Api::SubCategory::Cruiser:
+				return "Cruiser";
+			case Classification::Api::SubCategory::Destroyer:
+				return "Destroyer";
+			case Classification::Api::SubCategory::Frigate:
+				return "Frigate";
+			case Classification::Api::SubCategory::Corvette:
+				return "Corvette";
+			case Classification::Api::SubCategory::PatrolVessel:
+				return "Patrol vessel";
+			case Classification::Api::SubCategory::AmphibiousVessel:
+				return "Amphibious vessel";
+			case Classification::Api::SubCategory::AuxiliaryVessel:
+				return "Auxiliary vessel";
+			case Classification::Api::SubCategory::MerchantVessel:
+				return "Merchant vessel";
+			case Classification::Api::SubCategory::AttackSubmarine:
+				return "Attack submarine";
+			case Classification::Api::SubCategory::BallisticMissileSubmarine:
+				return "Ballistic missile submarine";
+			case Classification::Api::SubCategory::CruiseMissileSubmarine:
+				return "Cruise missile submarine";
+			case Classification::Api::SubCategory::HeavyweightTorpedo:
+				return "Heavyweight torpedo";
+			case Classification::Api::SubCategory::LightweightTorpedo:
+				return "Lightweight torpedo";
+			case Classification::Api::SubCategory::NavalMine:
+				return "Naval mine";
+			case Classification::Api::SubCategory::Noisemaker:
+				return "Noisemaker";
+			case Classification::Api::SubCategory::SelfPropelledAcousticDecoy:
+				return "Self propelled acoustic decoy";
+			case Classification::Api::SubCategory::Sonobuoy:
+				return "Sonobuoy";
+			case Classification::Api::SubCategory::GroundVehicle:
+				return "Ground vehicle";
+			case Classification::Api::SubCategory::SurfaceToAirMissileLauncher:
+				return "Surface to air missile launcher";
+			case Classification::Api::SubCategory::AntiAircraftGun:
+				return "Anti aircraft gun";
+			case Classification::Api::SubCategory::Radar:
+				return "Radar";
+			case Classification::Api::SubCategory::Airfield:
+				return "Airfield";
+			case Classification::Api::SubCategory::MilitaryInstallation:
+				return "Military installation";
+			case Classification::Api::SubCategory::CivilianInstallation:
+				return "Civilian installation";
+			case Classification::Api::SubCategory::Missile:
+				return "Missile";
+			case Classification::Api::SubCategory::Torpedo:
+				return "Torpedo";
+			case Classification::Api::SubCategory::SurfaceVessel:
 				return "Surface vessel";
-			case Units::Api::Classification::Submarine:
+			case Classification::Api::SubCategory::Submarine:
 				return "Submarine";
-			case Units::Api::Classification::LandVehicle:
-				return "Land vehicle";
-			case Units::Api::Classification::LandBuilding:
-				return "Land building";
-			case Units::Api::Classification::Projectile:
-				return "Projectile";
+			case Classification::Api::SubCategory::Whale:
+				return "Whale";
+			case Classification::Api::SubCategory::Other:
+				return "Other";
+			}
+			return "Unrecognized subcategory";
+		}
+
+		const char* CategoryName(Classification::Api::Category category)
+		{
+			switch (category)
+			{
+			case Classification::Api::Category::Aircraft:
+				return "Aircraft";
+			case Classification::Api::Category::Missile:
+				return "Missile";
+			case Classification::Api::Category::SurfaceVessel:
+				return "Surface vessel";
+			case Classification::Api::Category::Submarine:
+				return "Submarine";
+			case Classification::Api::Category::Torpedo:
+				return "Torpedo";
+			case Classification::Api::Category::Mine:
+				return "Mine";
+			case Classification::Api::Category::LandEquipment:
+				return "Land equipment";
+			case Classification::Api::Category::LandInstallation:
+				return "Land installation";
+			case Classification::Api::Category::LandUnit:
+				return "Land unit";
+			case Classification::Api::Category::SpaceObject:
+				return "Space object";
+			case Classification::Api::Category::SurfaceDevice:
+				return "Surface device";
+			case Classification::Api::Category::SubsurfaceDevice:
+				return "Subsurface device";
+			case Classification::Api::Category::SeaAnimal:
+				return "Sea animal";
+			case Classification::Api::Category::Other:
+				return "Other";
+			}
+			return "Unrecognized category";
+		}
+
+		const char* DimensionName(Classification::Api::Dimension dimension)
+		{
+			switch (dimension)
+			{
+			case Classification::Api::Dimension::Air:
+				return "Air";
+			case Classification::Api::Dimension::Land:
+				return "Land";
+			case Classification::Api::Dimension::SeaSurface:
+				return "Sea surface";
+			case Classification::Api::Dimension::SeaSubsurface:
+				return "Sea subsurface";
+			case Classification::Api::Dimension::Space:
+				return "Space";
+			case Classification::Api::Dimension::Other:
+				return "Other";
+			}
+			return "Unrecognized dimension";
+		}
+
+		const char* AlignmentName(Classification::Api::Alignment alignment)
+		{
+			switch (alignment)
+			{
+			case Classification::Api::Alignment::Friendly:
+				return "Friendly";
+			case Classification::Api::Alignment::Neutral:
+				return "Neutral";
+			case Classification::Api::Alignment::Hostile:
+				return "Hostile";
 			}
 			return "Unknown";
+		}
+
+		const char* RoleName(Classification::Api::Role role)
+		{
+			switch (role)
+			{
+			case Classification::Api::Role::AirSuperiority:
+				return "Air superiority";
+			case Classification::Api::Role::AirDefence:
+				return "Air defence";
+			case Classification::Api::Role::Strike:
+				return "Strike";
+			case Classification::Api::Role::LandAttack:
+				return "Land attack";
+			case Classification::Api::Role::SurfaceWarfare:
+				return "Surface warfare";
+			case Classification::Api::Role::AntiSubmarineWarfare:
+				return "Anti submarine warfare";
+			case Classification::Api::Role::MineWarfare:
+				return "Mine warfare";
+			case Classification::Api::Role::Reconnaissance:
+				return "Reconnaissance";
+			case Classification::Api::Role::MaritimePatrol:
+				return "Maritime patrol";
+			case Classification::Api::Role::AirborneEarlyWarning:
+				return "Airborne early warning";
+			case Classification::Api::Role::ElectronicWarfare:
+				return "Electronic warfare";
+			case Classification::Api::Role::Transport:
+				return "Transport";
+			case Classification::Api::Role::AerialRefuelling:
+				return "Aerial refuelling";
+			case Classification::Api::Role::Surveillance:
+				return "Surveillance";
+			case Classification::Api::Role::Decoy:
+				return "Decoy";
+			}
+			return "Unrecognized role";
+		}
+
+		std::string RoleList(const std::vector<Classification::Api::Role>& roles)
+		{
+			if (roles.empty())
+			{
+				return "none specified";
+			}
+
+			std::string result;
+			for (const auto role : roles)
+			{
+				if (!result.empty())
+				{
+					result += ", ";
+				}
+				result += RoleName(role);
+			}
+			return result;
 		}
 	}
 
@@ -431,15 +618,57 @@ namespace NavalCommand::TacticalDisplay
 				ImGui::TextWrapped("Observation: %s", observation->Identity.Value.c_str());
 				if (auto type = observation->Type.GetIf<Units::Api::TypeId>())
 				{
-					ImGui::Text("Type: %s", type->Value.c_str());
+					ImGui::Text("Exact type: %s", type->Value.c_str());
 				}
-				else if (auto classification = observation->Type.GetIf<Units::Api::Classification>())
+				else if (auto subCategory = observation->Type.GetIf<Classification::Api::SubCategory>())
 				{
-					ImGui::TextUnformatted(Classification(*classification));
+					ImGui::Text("Subcategory: %s", SubCategoryName(*subCategory));
+				}
+				else if (auto category = observation->Type.GetIf<Classification::Api::Category>())
+				{
+					ImGui::Text("Category: %s", CategoryName(*category));
+				}
+				else if (auto dimension = observation->Type.GetIf<Classification::Api::Dimension>())
+				{
+					ImGui::Text("Dimension: %s", DimensionName(*dimension));
 				}
 				else
 				{
 					ImGui::TextUnformatted("Type unknown");
+				}
+				if (observation->ObservedFaction.IsKnown())
+				{
+					const auto& observedFaction = observation->ObservedFaction.Value();
+					ImGui::Text("Observed faction: %s", observedFaction.Value.c_str());
+					auto alignment = providers.Factions.GetFactionAlignment(observation->ObserverFaction, observedFaction);
+					if (alignment)
+					{
+						ImGui::Text("Alignment: %s", AlignmentName(*alignment));
+					}
+					else
+					{
+						ImGui::TextUnformatted("Alignment unavailable");
+					}
+				}
+				else
+				{
+					ImGui::TextUnformatted("Observed faction and alignment unknown");
+				}
+				if (observation->CurrentLoadout.IsKnown())
+				{
+					ImGui::Text("Selected loadout: %s", observation->CurrentLoadout.Value().Value.c_str());
+				}
+				else
+				{
+					ImGui::TextUnformatted("Selected loadout unknown");
+				}
+				if (observation->IsDestroyed.IsKnown())
+				{
+					ImGui::TextUnformatted(observation->IsDestroyed.Value() ? "Destroyed" : "Not destroyed");
+				}
+				else
+				{
+					ImGui::TextUnformatted("Destruction status unknown");
 				}
 				if (observation->Kinematics.Speed.IsKnown())
 				{
@@ -493,9 +722,25 @@ namespace NavalCommand::TacticalDisplay
 				ImGui::TextWrapped("Unit: %s", unit->Name.c_str());
 				ImGui::Text("Faction: %s", unit->Faction.Value.c_str());
 				ImGui::TextWrapped("Type: %s", unit->Type.Value.c_str());
+				ImGui::Text("Selected loadout: %s", unit->CurrentLoadout.Value.c_str());
+				ImGui::TextUnformatted(unit->IsDestroyed ? "Destroyed" : "Not destroyed");
 				if (auto type = providers.Types.GetUnitType(unit->Type))
 				{
-					ImGui::TextUnformatted(Classification(type->UnitClassification));
+					ImGui::Text("Subcategory: %s", SubCategoryName(type->UnitSubCategory));
+					ImGui::Text("Category: %s", CategoryName(Classification::Api::GetCategory(type->UnitSubCategory)));
+					ImGui::Text("Dimension: %s", DimensionName(Classification::Api::GetDimension(
+						Classification::Api::GetCategory(type->UnitSubCategory))));
+					ImGui::Text("Platform roles: %s", RoleList(type->PlatformRoles).c_str());
+					const auto selectedLoadout = std::find_if(
+						type->Loadouts.begin(), type->Loadouts.end(),
+						[&unit](const auto& loadout)
+						{
+							return loadout.Id == unit->CurrentLoadout;
+						});
+					if (selectedLoadout != type->Loadouts.end())
+					{
+						ImGui::Text("Selected loadout roles: %s", RoleList(selectedLoadout->Roles).c_str());
+					}
 				}
 				if (unit->Kinematics.Position)
 				{
