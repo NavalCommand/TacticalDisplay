@@ -16,6 +16,17 @@
 
 namespace NavalCommand::TacticalDisplay
 {
+	class NoOpRenderer final : public Symbology::Nato::Api::IRenderer
+	{
+	public:
+		Symbology::Nato::Api::RenderResult Render(
+			const Symbology::Nato::Api::Symbol&,
+			const Symbology::Nato::Api::RenderContext& context) override
+		{
+			return {{context.Anchor, context.Anchor}, false};
+		}
+	};
+
 	struct Fixture
 	{
 		testing::NiceMock<Units::Api::IInstanceProviderMock> Units;
@@ -121,7 +132,8 @@ int main(int argc, char** argv)
 		duration = std::chrono::milliseconds{std::stoi(argv[2])};
 	}
 	std::vector<std::future<void>> controls;
-	TacticalDisplay::Display display;
+	TacticalDisplay::NoOpRenderer renderer;
+	TacticalDisplay::Display display{renderer};
 	std::size_t frames = 0;
 	const int result = display.Run(
 		[&]

@@ -13,6 +13,7 @@
 #include <NavalCommand/Simulation/Api/IPauseProvider.h>
 #include <NavalCommand/Simulation/Api/ITimeCompressionController.h>
 #include <NavalCommand/Simulation/Api/ITimeCompressionProvider.h>
+#include <NavalCommand/Symbology/Nato/Api/IRenderer.h>
 #include <NavalCommand/Units/Api/IInstanceProvider.h>
 #include <NavalCommand/Units/Api/ITypeProvider.h>
 #include <chrono>
@@ -55,7 +56,7 @@ namespace NavalCommand::TacticalDisplay
 		std::unique_ptr<State> m_State;
 
 	public:
-		Display();
+		explicit Display(Symbology::Nato::Api::IRenderer& renderer);
 		~Display();
 		Display(const Display&) = delete;
 		Display& operator=(const Display&) = delete;

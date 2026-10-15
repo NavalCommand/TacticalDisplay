@@ -1,4 +1,5 @@
 #include <NavalCommand/TacticalDisplay/Display.h>
+#include <NavalCommand/Symbology/Nato/Api/DomainConverter.h>
 #define NOMINMAX
 #include <Windows.h>
 #include <algorithm>
@@ -26,7 +27,7 @@ namespace NavalCommand::TacticalDisplay
 		constexpr double RADIANS_TO_DEGREES = 180 / std::numbers::pi;
 		constexpr ImU32 GRID_COLOR = IM_COL32(37, 65, 79, 255);
 		constexpr ImU32 UNIT_COLOR = IM_COL32(80, 215, 210, 255);
-		constexpr ImU32 CONTACT_COLOR = IM_COL32(245, 191, 83, 255);
+		namespace NatoApi = NavalCommand::Symbology::Nato::Api;
 
 		LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM parameter, LPARAM detail)
 		{
@@ -252,11 +253,27 @@ namespace NavalCommand::TacticalDisplay
 			}
 			return result;
 		}
+
+		const char* ContextName(NatoApi::Context context)
+		{
+			switch (context)
+			{
+			case NatoApi::Context::Reality:
+				return "Reality";
+			case NatoApi::Context::Exercise:
+				return "Exercise";
+			case NatoApi::Context::Simulation:
+				return "Simulation";
+			}
+			return "Simulation";
+		}
 	}
 
 	class Display::State
 	{
 	public:
+		NatoApi::IRenderer& Renderer;
+		NatoApi::Context SymbolContext{NatoApi::Context::Simulation};
 		HWND Window{};
 		ID3D11Device* Device{};
 		ID3D11DeviceContext* Context{};
@@ -274,6 +291,10 @@ namespace NavalCommand::TacticalDisplay
 		std::string Perspective{"Omniscient"};
 		std::mutex ControlMutex;
 		std::string ControlMessage;
+
+		explicit State(NatoApi::IRenderer& renderer) : Renderer{renderer}
+		{
+		}
 
 		void ReleaseTarget()
 		{
@@ -389,49 +410,75 @@ namespace NavalCommand::TacticalDisplay
 					origin.y + size.y * 0.5f - static_cast<float>((latitude - CenterLatitude) * PixelsPerDegree)};
 		}
 
-		void Symbol(ImDrawList& drawing, ImVec2 point, const std::string& id, const std::string& name, bool contact, std::optional<double> heading)
+		class MapProjection final : public NatoApi::IMapProjection
 		{
-			const auto color = contact ? CONTACT_COLOR : UNIT_COLOR;
-			if (contact)
+				const State& Owner;
+				ImVec2 Origin;
+				ImVec2 Size;
+
+			public:
+				MapProjection(const State& owner, ImVec2 origin, ImVec2 size) : Owner{owner}, Origin{origin}, Size{size}
+				{
+				}
+
+				NatoApi::ScreenPoint Project(NatoApi::GeographicCoordinate coordinate) const noexcept override
+				{
+					const ImVec2 point = Owner.Project(coordinate.LatitudeDegrees, coordinate.LongitudeDegrees, Origin, Size);
+					return {point.x, point.y};
+				}
+
+				NatoApi::ScreenVector ProjectLocalOffsetMeters(
+					NatoApi::GeographicCoordinate,
+					double eastMeters,
+					double northMeters) const noexcept override
+				{
+					const double longitudeScale = std::max(0.05, std::cos(Owner.CenterLatitude / RADIANS_TO_DEGREES));
+					const double pixelsPerMeter = Owner.PixelsPerDegree / METERS_PER_DEGREE;
+					return {eastMeters * pixelsPerMeter / longitudeScale, -northMeters * pixelsPerMeter};
+				}
+		};
+
+		bool DrawNatoSymbol(
+			NatoApi::Symbol& symbol,
+			std::string_view id,
+			bool contact,
+			MapProjection& projection,
+			ImVec2 anchor,
+			ImVec2 origin,
+			ImVec2 size)
+		{
+			const NatoApi::RenderContext renderContext{
+				{anchor.x, anchor.y},
+				{{origin.x, origin.y}, {origin.x + size.x, origin.y + size.y}},
+				&projection,
+				1.0,
+				0.0,
+				60.0};
+			const NatoApi::RenderResult result = Renderer.Render(symbol, renderContext);
+			if (!result.WasDrawn)
 			{
-				drawing.AddQuad({point.x, point.y - 7}, {point.x + 7, point.y}, {point.x, point.y + 7}, {point.x - 7, point.y}, color, 2);
+				return false;
 			}
-			else
-			{
-				drawing.AddCircleFilled(point, 5, color);
-			}
-			if (heading)
-			{
-				drawing.AddLine(point, {point.x + static_cast<float>(std::sin(*heading) * 22), point.y - static_cast<float>(std::cos(*heading) * 22)}, color, 2);
-			}
-			drawing.AddText({point.x + 12, point.y - 7}, color, name.empty() ? id.c_str() : name.c_str());
-			const auto mouse = ImGui::GetIO().MousePos;
-			const auto distanceSquared = (mouse.x - point.x) * (mouse.x - point.x) + (mouse.y - point.y) * (mouse.y - point.y);
-			if (ImGui::IsWindowHovered() && distanceSquared < 225 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+
+			const ImVec2 mouse = ImGui::GetIO().MousePos;
+			const bool containsMouse = mouse.x >= result.Bounds.Minimum.X && mouse.x <= result.Bounds.Maximum.X
+				&& mouse.y >= result.Bounds.Minimum.Y && mouse.y <= result.Bounds.Maximum.Y;
+			if (ImGui::IsWindowHovered() && containsMouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
 				Selection = id;
 				SelectedContact = contact;
 			}
 			if (Selection == id && SelectedContact == contact)
 			{
-				drawing.AddCircle(point, 12, IM_COL32(255, 255, 255, 255), 24, 2);
+				ImGui::GetWindowDrawList()->AddRect(
+					{static_cast<float>(result.Bounds.Minimum.X - 3.0), static_cast<float>(result.Bounds.Minimum.Y - 3.0)},
+					{static_cast<float>(result.Bounds.Maximum.X + 3.0), static_cast<float>(result.Bounds.Maximum.Y + 3.0)},
+					IM_COL32(255, 255, 255, 230),
+					0.0f,
+					ImDrawFlags_None,
+					1.5f);
 			}
-		}
-
-		void UncertaintyEllipse(ImDrawList& drawing, ImVec2 point, const Observations::Api::ObservedErrorEllipse& ellipse)
-		{
-			const double majorPixels = ellipse.MajorAxis.Value * PixelsPerDegree / METERS_PER_DEGREE;
-			const double minorPixels = ellipse.MinorAxis.Value * PixelsPerDegree / METERS_PER_DEGREE;
-			for (int segment = 0; segment <= 64; ++segment)
-			{
-				const double parameter = segment * 2 * std::numbers::pi / 64;
-				const double north = majorPixels * std::cos(parameter);
-				const double east = minorPixels * std::sin(parameter);
-				const double orientation = ellipse.Orientation.Value;
-				drawing.PathLineTo({point.x + static_cast<float>(north * std::sin(orientation) + east * std::cos(orientation)),
-									point.y - static_cast<float>(north * std::cos(orientation) - east * std::sin(orientation))});
-			}
-			drawing.PathStroke(IM_COL32(245, 191, 83, 120), 1.0f, ImDrawFlags_Closed);
+			return true;
 		}
 
 		void Map(Frame& frame)
@@ -483,6 +530,7 @@ namespace NavalCommand::TacticalDisplay
 				const auto point = Project(CenterLatitude, longitude, origin, size);
 				drawing.AddLine({point.x, origin.y}, {point.x, origin.y + size.y}, GRID_COLOR);
 			}
+			MapProjection projection{*this, origin, size};
 			if (frame.Interfaces)
 			{
 				auto& providers = *frame.Interfaces;
@@ -496,12 +544,6 @@ namespace NavalCommand::TacticalDisplay
 							continue;
 						}
 						const auto& position = *unit->Kinematics.Position;
-						Symbol(drawing,
-							   Project(position.Latitude.Value, position.Longitude.Value, origin, size),
-							   id.Value,
-							   unit->Name,
-							   false,
-							   unit->Kinematics.Heading ? std::optional{unit->Kinematics.Heading->Value} : std::nullopt);
 						if (auto operations = providers.Operations.GetUnitOperations(id); operations && operations->NavigationState)
 						{
 							auto previous = Project(position.Latitude.Value, position.Longitude.Value, origin, size);
@@ -514,6 +556,48 @@ namespace NavalCommand::TacticalDisplay
 						}
 					}
 				}
+				if (auto ids = providers.Units.GetUnitInstanceIds())
+				{
+					for (const auto& id : *ids)
+					{
+						auto unit = providers.Units.GetUnitInstance(id);
+						if (!unit || !unit->Kinematics.Position)
+						{
+							continue;
+						}
+						std::optional<Units::Api::Type> typeDefinition;
+						if (auto type = providers.Types.GetUnitType(unit->Type); type)
+						{
+							typeDefinition = std::move(*type);
+						}
+						std::optional<Classification::Api::Alignment> alignment;
+						if (Perspective != "Omniscient")
+						{
+							if (auto result = providers.Factions.GetFactionAlignment({Perspective}, unit->Faction); result)
+							{
+								alignment = *result;
+							}
+						}
+						auto symbol = NatoApi::DomainConverter::FromUnit(
+							*unit,
+							typeDefinition,
+							NatoApi::DomainConverter::FromAlignment(alignment),
+							SymbolContext);
+						if (!symbol)
+						{
+							continue;
+						}
+						const auto& position = *unit->Kinematics.Position;
+						DrawNatoSymbol(
+							*symbol,
+							id.Value,
+							false,
+							projection,
+							Project(position.Latitude.Value, position.Longitude.Value, origin, size),
+							origin,
+							size);
+					}
+				}
 				if (auto ids = providers.Observations.GetObservationIds())
 				{
 					for (const auto& id : *ids)
@@ -523,9 +607,35 @@ namespace NavalCommand::TacticalDisplay
 						{
 							continue;
 						}
+						std::optional<Units::Api::Type> typeDefinition;
+						if (const auto* typeId = observation->Type.GetIf<Units::Api::TypeId>())
+						{
+							if (auto type = providers.Types.GetUnitType(*typeId); type)
+							{
+								typeDefinition = std::move(*type);
+							}
+						}
+						std::optional<Classification::Api::Alignment> alignment;
+						if (observation->ObservedFaction.IsKnown())
+						{
+							if (auto result = providers.Factions.GetFactionAlignment(
+									observation->ObserverFaction,
+									observation->ObservedFaction.Value()); result)
+							{
+								alignment = *result;
+							}
+						}
+						auto symbol = NatoApi::DomainConverter::FromObservation(
+							*observation,
+							typeDefinition,
+							NatoApi::DomainConverter::FromAlignment(alignment),
+							SymbolContext);
+						if (!symbol)
+						{
+							continue;
+						}
 						std::optional<double> latitude;
 						std::optional<double> longitude;
-						const Observations::Api::ObservedErrorEllipse* ellipse = nullptr;
 						if (auto exact = std::get_if<Physics::Api::Position>(&observation->Kinematics.Position))
 						{
 							latitude = exact->Latitude.Value;
@@ -542,26 +652,13 @@ namespace NavalCommand::TacticalDisplay
 							{
 								longitude = partial.Longitude->Value;
 							}
-							if (partial.ErrorEllipse)
-							{
-								ellipse = &*partial.ErrorEllipse;
-							}
 						}
 						if (!latitude || !longitude)
 						{
 							continue;
 						}
 						const auto point = Project(*latitude, *longitude, origin, size);
-						if (ellipse)
-						{
-							UncertaintyEllipse(drawing, point, *ellipse);
-						}
-						Symbol(drawing,
-							   point,
-							   id.Value,
-							   observation->ObservationName,
-							   true,
-							   observation->Kinematics.Heading.IsKnown() ? std::optional{observation->Kinematics.Heading.Value().Value} : std::nullopt);
+						DrawNatoSymbol(*symbol, id.Value, true, projection, point, origin, size);
 					}
 				}
 			}
@@ -826,7 +923,7 @@ namespace NavalCommand::TacticalDisplay
 		}
 	};
 
-	Display::Display() : m_State{std::make_unique<State>()}
+	Display::Display(NatoApi::IRenderer& renderer) : m_State{std::make_unique<State>(renderer)}
 	{
 	}
 
@@ -905,6 +1002,18 @@ namespace NavalCommand::TacticalDisplay
 								perspectiveChanged = true;
 							}
 						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::SameLine();
+			if (ImGui::BeginCombo("Symbol context", ContextName(m_State->SymbolContext)))
+			{
+				for (const auto context : {NatoApi::Context::Reality, NatoApi::Context::Exercise, NatoApi::Context::Simulation})
+				{
+					if (ImGui::Selectable(ContextName(context), m_State->SymbolContext == context))
+					{
+						m_State->SymbolContext = context;
 					}
 				}
 				ImGui::EndCombo();
