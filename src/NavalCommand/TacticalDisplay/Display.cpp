@@ -1,5 +1,6 @@
-#include <NavalCommand/TacticalDisplay/Display.h>
+#include <NavalCommand/Error/Api/ErrorCondition.h>
 #include <NavalCommand/Symbology/Nato/Api/DomainConverter.h>
+#include <NavalCommand/TacticalDisplay/Display.h>
 #define NOMINMAX
 #include <Windows.h>
 #include <algorithm>
@@ -28,6 +29,18 @@ namespace NavalCommand::TacticalDisplay
 		constexpr ImU32 GRID_COLOR = IM_COL32(37, 65, 79, 255);
 		constexpr ImU32 UNIT_COLOR = IM_COL32(80, 215, 210, 255);
 		namespace NatoApi = NavalCommand::Symbology::Nato::Api;
+
+		std::string DisplayName(const std::string& fallback,
+							   const std::optional<std::string>& displayName,
+							   const std::optional<std::string>& alternativeDisplayName = std::nullopt)
+		{
+			std::string label = displayName && !displayName->empty() ? *displayName : fallback;
+			if (alternativeDisplayName && !alternativeDisplayName->empty() && *alternativeDisplayName != label)
+			{
+				label += " (" + *alternativeDisplayName + ")";
+			}
+			return label;
+		}
 
 		LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM parameter, LPARAM detail)
 		{
@@ -267,13 +280,44 @@ namespace NavalCommand::TacticalDisplay
 			}
 			return "Simulation";
 		}
+
+		const char* ErrorConditionName(NavalCommand::Error::Api::ErrorCondition condition)
+		{
+			using ErrorCondition = NavalCommand::Error::Api::ErrorCondition;
+			switch (condition)
+			{
+			case ErrorCondition::ContractError:
+				return "ContractError";
+			case ErrorCondition::CommunicationError:
+				return "CommunicationError";
+			case ErrorCondition::DeviceError:
+				return "DeviceError";
+			case ErrorCondition::NotFound:
+				return "NotFound";
+			case ErrorCondition::NotReady:
+				return "NotReady";
+			case ErrorCondition::PermissionDenied:
+				return "PermissionDenied";
+			case ErrorCondition::ResourceExhausted:
+				return "ResourceExhausted";
+			case ErrorCondition::UnknownError:
+				return "UnknownError";
+			}
+			return "UnknownError";
+		}
 	}
 
 	class Display::State
 	{
 	public:
 		NatoApi::IRenderer& Renderer;
-		NatoApi::Context SymbolContext{NatoApi::Context::Simulation};
+		NatoApi::Context SymbolContext{NatoApi::Context::Reality};
+		float SymbolScale{1.0f};
+		float SpeedLeaderSeconds{60.0f};
+		int LabelMode{3};
+		bool DetailedLabels{true};
+		bool MapHovered{};
+		bool MapClicked{};
 		HWND Window{};
 		ID3D11Device* Device{};
 		ID3D11DeviceContext* Context{};
@@ -355,6 +399,12 @@ namespace NavalCommand::TacticalDisplay
 				return false;
 			}
 			ImGui::CreateContext();
+			char windowsDirectory[MAX_PATH]{};
+			if (GetWindowsDirectoryA(windowsDirectory, MAX_PATH))
+			{
+				const std::string fontPath = std::string{windowsDirectory} + "/Fonts/segoeui.ttf";
+				ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f, nullptr, ImGui::GetIO().Fonts->GetGlyphRangesCyrillic());
+			}
 			ImGui::StyleColorsDark();
 			ImGui::GetStyle().WindowRounding = 0;
 			ImGui::GetStyle().FrameRounding = 3;
@@ -428,13 +478,14 @@ namespace NavalCommand::TacticalDisplay
 				}
 
 				NatoApi::ScreenVector ProjectLocalOffsetMeters(
-					NatoApi::GeographicCoordinate,
+					NatoApi::GeographicCoordinate coordinate,
 					double eastMeters,
 					double northMeters) const noexcept override
 				{
-					const double longitudeScale = std::max(0.05, std::cos(Owner.CenterLatitude / RADIANS_TO_DEGREES));
+					const double centerLongitudeScale = std::max(0.05, std::cos(Owner.CenterLatitude / RADIANS_TO_DEGREES));
+					const double localLongitudeScale = std::max(0.05, std::cos(coordinate.LatitudeDegrees / RADIANS_TO_DEGREES));
 					const double pixelsPerMeter = Owner.PixelsPerDegree / METERS_PER_DEGREE;
-					return {eastMeters * pixelsPerMeter / longitudeScale, -northMeters * pixelsPerMeter};
+					return {eastMeters * pixelsPerMeter * centerLongitudeScale / localLongitudeScale, -northMeters * pixelsPerMeter};
 				}
 		};
 
@@ -447,13 +498,17 @@ namespace NavalCommand::TacticalDisplay
 			ImVec2 origin,
 			ImVec2 size)
 		{
+			const bool selected = Selection == id && SelectedContact == contact;
 			const NatoApi::RenderContext renderContext{
 				{anchor.x, anchor.y},
 				{{origin.x, origin.y}, {origin.x + size.x, origin.y + size.y}},
 				&projection,
-				1.0,
+				SymbolScale,
 				0.0,
-				60.0};
+				SpeedLeaderSeconds,
+				LabelMode == 3 || (selected && (LabelMode == 0 || LabelMode == 2)),
+				DetailedLabels,
+				MapHovered && (LabelMode == 1 || LabelMode == 2)};
 			const NatoApi::RenderResult result = Renderer.Render(symbol, renderContext);
 			if (!result.WasDrawn)
 			{
@@ -461,9 +516,9 @@ namespace NavalCommand::TacticalDisplay
 			}
 
 			const ImVec2 mouse = ImGui::GetIO().MousePos;
-			const bool containsMouse = mouse.x >= result.Bounds.Minimum.X && mouse.x <= result.Bounds.Maximum.X
-				&& mouse.y >= result.Bounds.Minimum.Y && mouse.y <= result.Bounds.Maximum.Y;
-			if (ImGui::IsWindowHovered() && containsMouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			const bool containsMouse = mouse.x >= result.SymbolBounds.Minimum.X && mouse.x <= result.SymbolBounds.Maximum.X
+				&& mouse.y >= result.SymbolBounds.Minimum.Y && mouse.y <= result.SymbolBounds.Maximum.Y;
+			if (MapClicked && containsMouse)
 			{
 				Selection = id;
 				SelectedContact = contact;
@@ -471,8 +526,8 @@ namespace NavalCommand::TacticalDisplay
 			if (Selection == id && SelectedContact == contact)
 			{
 				ImGui::GetWindowDrawList()->AddRect(
-					{static_cast<float>(result.Bounds.Minimum.X - 3.0), static_cast<float>(result.Bounds.Minimum.Y - 3.0)},
-					{static_cast<float>(result.Bounds.Maximum.X + 3.0), static_cast<float>(result.Bounds.Maximum.Y + 3.0)},
+					{static_cast<float>(result.SymbolBounds.Minimum.X - 3.0), static_cast<float>(result.SymbolBounds.Minimum.Y - 3.0)},
+					{static_cast<float>(result.SymbolBounds.Maximum.X + 3.0), static_cast<float>(result.SymbolBounds.Maximum.Y + 3.0)},
 					IM_COL32(255, 255, 255, 230),
 					0.0f,
 					ImDrawFlags_None,
@@ -503,6 +558,8 @@ namespace NavalCommand::TacticalDisplay
 			const auto origin = ImGui::GetCursorScreenPos();
 			const auto size = ImGui::GetContentRegionAvail();
 			ImGui::InvisibleButton("Geographical plot", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+			MapHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+			MapClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 			auto& drawing = *ImGui::GetWindowDrawList();
 			drawing.PushClipRect(origin, {origin.x + size.x, origin.y + size.y}, true);
 			drawing.AddRectFilled(origin, {origin.x + size.x, origin.y + size.y}, IM_COL32(13, 30, 41, 255));
@@ -550,7 +607,7 @@ namespace NavalCommand::TacticalDisplay
 							for (const auto& waypoint : operations->NavigationState->PlannedRoute)
 							{
 								auto next = Project(waypoint.TargetPosition.Latitude.Value, waypoint.TargetPosition.Longitude.Value, origin, size);
-								drawing.AddLine(previous, next, UNIT_COLOR);
+								drawing.AddLine(previous, next, IM_COL32(145, 145, 145, 255));
 								previous = next;
 							}
 						}
@@ -713,9 +770,26 @@ namespace NavalCommand::TacticalDisplay
 					return;
 				}
 				ImGui::TextWrapped("Observation: %s", observation->Identity.Value.c_str());
+				std::optional<Units::Api::Type> exactUnitType;
 				if (auto type = observation->Type.GetIf<Units::Api::TypeId>())
 				{
-					ImGui::Text("Exact type: %s", type->Value.c_str());
+					auto resolvedType = providers.Types.GetUnitType(*type);
+					if (resolvedType)
+					{
+						exactUnitType = *resolvedType;
+					}
+					else
+					{
+						ImGui::Text("Type metadata lookup failed: %s", ErrorConditionName(resolvedType.error().Condition));
+					}
+					const std::string typeLabel = exactUnitType
+						? DisplayName(type->Value, exactUnitType->DisplayName, exactUnitType->AlternativeDisplayName)
+						: type->Value;
+					ImGui::Text("Exact type: %s", typeLabel.c_str());
+					if (exactUnitType)
+					{
+						ImGui::Text("Platform roles: %s", RoleList(exactUnitType->PlatformRoles).c_str());
+					}
 				}
 				else if (auto subCategory = observation->Type.GetIf<Classification::Api::SubCategory>())
 				{
@@ -753,7 +827,20 @@ namespace NavalCommand::TacticalDisplay
 				}
 				if (observation->CurrentLoadout.IsKnown())
 				{
-					ImGui::Text("Selected loadout: %s", observation->CurrentLoadout.Value().Value.c_str());
+					const auto& loadoutId = observation->CurrentLoadout.Value();
+					std::optional<std::string> loadoutDisplayName;
+					if (exactUnitType)
+					{
+						const auto loadout = std::find_if(
+							exactUnitType->Loadouts.begin(), exactUnitType->Loadouts.end(),
+							[&loadoutId](const auto& candidate) { return candidate.Id == loadoutId; });
+						if (loadout != exactUnitType->Loadouts.end())
+						{
+							loadoutDisplayName = loadout->DisplayName;
+						}
+					}
+					const std::string loadoutLabel = DisplayName(loadoutId.Value, loadoutDisplayName);
+					ImGui::Text("Selected loadout: %s", loadoutLabel.c_str());
 				}
 				else
 				{
@@ -778,6 +865,10 @@ namespace NavalCommand::TacticalDisplay
 				if (observation->Kinematics.Heading.IsKnown())
 				{
 					ImGui::Text("Heading: %.1f deg", observation->Kinematics.Heading.Value().Value * RADIANS_TO_DEGREES);
+				}
+				else
+				{
+					ImGui::TextUnformatted("Heading unknown");
 				}
 				if (auto exact = std::get_if<Physics::Api::Position>(&observation->Kinematics.Position))
 				{
@@ -827,23 +918,43 @@ namespace NavalCommand::TacticalDisplay
 				}
 				ImGui::TextWrapped("Unit: %s", unit->Name.c_str());
 				ImGui::Text("Faction: %s", unit->Faction.Value.c_str());
-				ImGui::TextWrapped("Type: %s", unit->Type.Value.c_str());
-				ImGui::Text("Selected loadout: %s", unit->CurrentLoadout.Value.c_str());
-				ImGui::TextUnformatted(unit->IsDestroyed ? "Destroyed" : "Not destroyed");
-				if (auto type = providers.Types.GetUnitType(unit->Type))
+				auto unitType = providers.Types.GetUnitType(unit->Type);
+				const std::string typeLabel = unitType
+					? DisplayName(unit->Type.Value, unitType->DisplayName, unitType->AlternativeDisplayName)
+					: unit->Type.Value;
+				ImGui::TextWrapped("Type: %s", typeLabel.c_str());
+				if (!unitType)
 				{
-					ImGui::Text("Subcategory: %s", SubCategoryName(type->UnitSubCategory));
-					ImGui::Text("Category: %s", CategoryName(Classification::Api::GetCategory(type->UnitSubCategory)));
-					ImGui::Text("Dimension: %s", DimensionName(Classification::Api::GetDimension(
-						Classification::Api::GetCategory(type->UnitSubCategory))));
-					ImGui::Text("Platform roles: %s", RoleList(type->PlatformRoles).c_str());
+					ImGui::Text("Type metadata lookup failed: %s", ErrorConditionName(unitType.error().Condition));
+				}
+				std::optional<std::string> loadoutDisplayName;
+				if (unitType)
+				{
 					const auto selectedLoadout = std::find_if(
-						type->Loadouts.begin(), type->Loadouts.end(),
+						unitType->Loadouts.begin(), unitType->Loadouts.end(),
+						[&unit](const auto& loadout) { return loadout.Id == unit->CurrentLoadout; });
+					if (selectedLoadout != unitType->Loadouts.end())
+					{
+						loadoutDisplayName = selectedLoadout->DisplayName;
+					}
+				}
+				const std::string loadoutLabel = DisplayName(unit->CurrentLoadout.Value, loadoutDisplayName);
+				ImGui::Text("Selected loadout: %s", loadoutLabel.c_str());
+				ImGui::TextUnformatted(unit->IsDestroyed ? "Destroyed" : "Not destroyed");
+				if (unitType)
+				{
+					ImGui::Text("Subcategory: %s", SubCategoryName(unitType->UnitSubCategory));
+					ImGui::Text("Category: %s", CategoryName(Classification::Api::GetCategory(unitType->UnitSubCategory)));
+					ImGui::Text("Dimension: %s", DimensionName(Classification::Api::GetDimension(
+						Classification::Api::GetCategory(unitType->UnitSubCategory))));
+					ImGui::Text("Platform roles: %s", RoleList(unitType->PlatformRoles).c_str());
+					const auto selectedLoadout = std::find_if(
+						unitType->Loadouts.begin(), unitType->Loadouts.end(),
 						[&unit](const auto& loadout)
 						{
 							return loadout.Id == unit->CurrentLoadout;
 						});
-					if (selectedLoadout != type->Loadouts.end())
+					if (selectedLoadout != unitType->Loadouts.end())
 					{
 						ImGui::Text("Selected loadout roles: %s", RoleList(selectedLoadout->Roles).c_str());
 					}
@@ -868,7 +979,11 @@ namespace NavalCommand::TacticalDisplay
 				ImGui::SeparatorText("Equipment capabilities");
 				for (const auto& equipment : unit->Equipment)
 				{
-					ImGui::TextWrapped("%s", equipment.Type.Value.c_str());
+					auto equipmentType = providers.Equipment.GetEquipmentType(equipment.Type);
+					const std::string equipmentLabel = equipmentType
+						? DisplayName(equipment.Type.Value, equipmentType->DisplayName, equipmentType->AlternativeDisplayName)
+						: equipment.Type.Value;
+					ImGui::TextWrapped("%s", equipmentLabel.c_str());
 					ImGui::Text("State: %s / %s",
 								equipment.State == Equipment::Api::OperationalState::Active	 ? "active"
 								: equipment.State == Equipment::Api::OperationalState::Ready ? "ready"
@@ -980,6 +1095,7 @@ namespace NavalCommand::TacticalDisplay
 			ImGui::TextUnformatted("NAVALCOMMAND  /  TACTICAL PICTURE");
 			ImGui::SameLine();
 			ImGui::TextColored(frame.Stale ? ImVec4{1, 0.65f, 0.25f, 1} : ImVec4{0.3f, 0.85f, 0.8f, 1}, "%s", frame.Status.c_str());
+			ImGui::Separator();
 			bool perspectiveChanged = false;
 			if (ImGui::BeginCombo("Perspective", m_State->Perspective.c_str()))
 			{
@@ -1007,6 +1123,8 @@ namespace NavalCommand::TacticalDisplay
 				ImGui::EndCombo();
 			}
 			ImGui::SameLine();
+			ImGui::TextDisabled("|");
+			ImGui::SameLine();
 			if (ImGui::BeginCombo("Symbol context", ContextName(m_State->SymbolContext)))
 			{
 				for (const auto context : {NatoApi::Context::Reality, NatoApi::Context::Exercise, NatoApi::Context::Simulation})
@@ -1018,6 +1136,30 @@ namespace NavalCommand::TacticalDisplay
 				}
 				ImGui::EndCombo();
 			}
+			ImGui::Separator();
+			ImGui::SetNextItemWidth(180.0f);
+			if (ImGui::SliderFloat("Symbol scale", &m_State->SymbolScale, 0.5f, 4.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp))
+			{
+				m_State->SymbolScale = std::round(m_State->SymbolScale * 10.0f) / 10.0f;
+			}
+			ImGui::SameLine();
+			ImGui::TextDisabled("|");
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(190.0f);
+			ImGui::Combo("Labels", &m_State->LabelMode, "Only Selected\0Only Hovered\0Selected and Hovered\0Always\0");
+			ImGui::SameLine();
+			ImGui::TextDisabled("|");
+			ImGui::SameLine();
+			ImGui::Checkbox("All labels (off: type only)", &m_State->DetailedLabels);
+			ImGui::Separator();
+			ImGui::SetNextItemWidth(180.0f);
+			ImGui::InputFloat("Speed leader (seconds)", &m_State->SpeedLeaderSeconds, 10.0f, 60.0f, "%.0f");
+			if (!std::isfinite(m_State->SpeedLeaderSeconds))
+			{
+				m_State->SpeedLeaderSeconds = 60.0f;
+			}
+			m_State->SpeedLeaderSeconds = std::clamp(m_State->SpeedLeaderSeconds, 0.0f, 86400.0f);
+			ImGui::Separator();
 			if (perspectiveChanged)
 			{
 				m_State->Selection.clear();

@@ -6,6 +6,7 @@
 #endif
 
 #include <NavalCommand/Environment/Api/ITimeProvider.h>
+#include <NavalCommand/Equipment/Api/IProvider.h>
 #include <NavalCommand/Factions/Api/IProvider.h>
 #include <NavalCommand/Observations/Api/IInstanceProvider.h>
 #include <NavalCommand/Operations/Api/IProvider.h>
@@ -27,6 +28,7 @@ namespace NavalCommand::TacticalDisplay
 	{
 		Units::Api::IInstanceProvider& Units;
 		Units::Api::ITypeProvider& Types;
+		Equipment::Api::IProvider& Equipment;
 		Observations::Api::IInstanceProvider& Observations;
 		Operations::Api::IProvider& Operations;
 		Factions::Api::IProvider& Factions;

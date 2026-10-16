@@ -1,5 +1,6 @@
 #include <NavalCommand/Environment/Api/ITimeProviderMock.h>
 #include <NavalCommand/Error/Api/MakeError.h>
+#include <NavalCommand/Equipment/Api/IProviderMock.h>
 #include <NavalCommand/Factions/Api/IProviderMock.h>
 #include <NavalCommand/Observations/Api/IInstanceProviderMock.h>
 #include <NavalCommand/Operations/Api/IProviderMock.h>
@@ -31,6 +32,7 @@ namespace NavalCommand::TacticalDisplay
 	{
 		testing::NiceMock<Units::Api::IInstanceProviderMock> Units;
 		testing::NiceMock<Units::Api::ITypeProviderMock> Types;
+		testing::NiceMock<Equipment::Api::IProviderMock> Equipment;
 		testing::NiceMock<Observations::Api::IInstanceProviderMock> Observations;
 		testing::NiceMock<Operations::Api::IProviderMock> Operations;
 		testing::NiceMock<Factions::Api::IProviderMock> Factions;
@@ -58,8 +60,12 @@ namespace NavalCommand::TacticalDisplay
 			unit.Kinematics.Speed = Physics::Api::MetersPerSecond{5};
 			unit.Kinematics.Heading = Physics::Api::Radians{0.5};
 			ON_CALL(Units, GetUnitInstance(_)).WillByDefault(Return(unit));
-			Units::Api::Type type{{"frigate"}, Classification::Api::SubCategory::Frigate, {}, {}};
-			type.Loadouts.push_back({{"empty"}, {}, {}});
+			Units::Api::Type type{};
+			type.Id = {"frigate"};
+			type.UnitSubCategory = Classification::Api::SubCategory::Frigate;
+			Equipment::Api::Loadout loadout{};
+			loadout.Id = {"empty"};
+			type.Loadouts.push_back(std::move(loadout));
 			ON_CALL(Types, GetUnitType(_)).WillByDefault(Return(type));
 			ON_CALL(Factions, GetFactionIds()).WillByDefault(Return(std::vector<Factions::Api::Id>{{"blue"}, {"red"}}));
 			ON_CALL(Observations, GetObservationIds()).WillByDefault(Return(std::vector<Observations::Api::Id>{{"contact"}, {"unlocalized"}}));
@@ -142,6 +148,7 @@ int main(int argc, char** argv)
 			return TacticalDisplay::Frame{fixture,
 										  TacticalDisplay::Providers{fixture->Units,
 																	 fixture->Types,
+												 fixture->Equipment,
 																	 fixture->Observations,
 																	 fixture->Operations,
 																	 fixture->Factions,
