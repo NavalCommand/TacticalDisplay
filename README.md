@@ -51,3 +51,15 @@ layouts remain best effort.
 integration. The visual smoke fixture writes `symbol-styles.ppm` and
 `measured-scene.ppm` and `platform-icons.ppm` and `primary-role-icons.ppm` in its CTest working directory,
 using real ImGui geometry and font-atlas pixels without a GPU or Sea Power session.
+
+## Unrepresentable symbols
+
+The presentation boundary recovers failed classification conversions and unsupported
+renderer details with a standard Unknown-dimension NATO symbol. No surface vessel,
+submarine, or mission is inferred. The original domain object remains available in
+details; authorized labels, affiliation, geographic amplifiers and layout identity
+are retained. The details panel distinguishes unrepresentable classifications,
+invalid domain values, mismatched definitions and renderer limitations. Strict
+`DomainConverter` calls still return their original errors.
+Fallbacks use the ordinary renderer, layout and selection paths. Unlocalized
+observations remain in the tactical list without an invented map position.

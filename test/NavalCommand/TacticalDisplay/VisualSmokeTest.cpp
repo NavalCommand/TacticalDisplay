@@ -176,7 +176,7 @@ namespace NavalCommand::TacticalDisplay
 		};
 		const std::array iconCases{IconCase{NatoGeometry::SymbolSet::SeaSurface, 1, 0, 0},
 								   IconCase{NatoGeometry::SymbolSet::SeaSurface, 2, 2, 33},
-								   IconCase{NatoGeometry::SymbolSet::SeaSubsurface, 1, 0, 8},
+								   IconCase{NatoGeometry::SymbolSet::SeaSubsurface, 1, 0, 0},
 								   IconCase{NatoGeometry::SymbolSet::Air, 2, 0, 0},
 								   IconCase{NatoGeometry::SymbolSet::Air, 1, 0, 4},
 								   IconCase{NatoGeometry::SymbolSet::Air, 1, 0, 12},

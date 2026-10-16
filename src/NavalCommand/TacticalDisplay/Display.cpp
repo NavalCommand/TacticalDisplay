@@ -2,6 +2,7 @@
 #include <NavalCommand/Symbology/Nato/Api/DomainConverter.h>
 #include <NavalCommand/TacticalDisplay/Display.h>
 #include <NavalCommand/TacticalDisplay/SymbolLayout.h>
+#include <NavalCommand/TacticalDisplay/SymbolPresentation.h>
 #define NOMINMAX
 #include <Windows.h>
 #include <algorithm>
@@ -314,6 +315,7 @@ namespace NavalCommand::TacticalDisplay
 	{
 	public:
 		NatoApi::IRenderer& Renderer;
+		std::map<SymbolKey, std::string> SymbolDiagnostics;
 		NatoApi::Context SymbolContext{NatoApi::Context::Reality};
 		float SymbolScale{1.0f};
 		float SpeedLeaderSeconds{60.0f};
@@ -493,7 +495,7 @@ namespace NavalCommand::TacticalDisplay
 			}
 		};
 
-		void RenderScene(const std::map<SymbolKey, NatoApi::Symbol>& symbols, MapProjection& projection, ImVec2 origin, ImVec2 size)
+		void RenderScene(std::map<SymbolKey, SymbolPresentation>& symbols, MapProjection& projection, ImVec2 origin, ImVec2 size)
 		{
 			const NatoApi::ScreenRectangle viewport{{origin.x, origin.y}, {origin.x + size.x, origin.y + size.y}};
 			const auto style = NatoApi::SymbolStyle::FromPreset(static_cast<NatoApi::StylePreset>(StyleIndex));
@@ -501,7 +503,7 @@ namespace NavalCommand::TacticalDisplay
 			items.reserve(symbols.size());
 			for (const auto& [key, symbol] : symbols)
 			{
-				const auto& location = symbol.ExternalAmplifiers.Position->Location;
+				const auto& location = symbol.Value.ExternalAmplifiers.Position->Location;
 				const auto anchor = projection.Project({*location.LatitudeDegrees, *location.LongitudeDegrees});
 				if (viewport.Contains(anchor))
 				{
@@ -526,7 +528,12 @@ namespace NavalCommand::TacticalDisplay
 			};
 			for (auto& item : items)
 			{
-				item.Geometry = Renderer.Measure(symbols.at(item.Key), makeContext(item));
+				auto& presentation = symbols.at(item.Key);
+				item.Geometry = presentation.Measure(Renderer, makeContext(item));
+				if (!presentation.Diagnostic.empty())
+				{
+					SymbolDiagnostics[item.Key] = presentation.Diagnostic;
+				}
 			}
 			std::erase_if(items,
 						  [](const LayoutItem& item)
@@ -541,7 +548,7 @@ namespace NavalCommand::TacticalDisplay
 			{
 				auto context = makeContext(item);
 				context.Layer = NatoApi::RenderLayer::Geographic;
-				Renderer.Render(symbols.at(item.Key), context);
+				Renderer.Render(symbols.at(item.Key).Value, context);
 				const auto endpoint = ConnectorEndpoint(item.GeographicAnchor, item.Geometry.SymbolBounds);
 				const double horizontal = endpoint.X - item.GeographicAnchor.X;
 				const double vertical = endpoint.Y - item.GeographicAnchor.Y;
@@ -575,7 +582,7 @@ namespace NavalCommand::TacticalDisplay
 			{
 				auto context = makeContext(item);
 				context.Layer = NatoApi::RenderLayer::Presentation;
-				Renderer.Render(symbols.at(item.Key), context);
+				Renderer.Render(symbols.at(item.Key).Value, context);
 				if (Selection == item.Key.Id && SelectedContact == item.Key.Contact)
 				{
 					const auto bounds = item.Geometry.SymbolBounds;
@@ -591,7 +598,7 @@ namespace NavalCommand::TacticalDisplay
 				{
 					continue;
 				}
-				const auto color = style.Palette.Resolve(symbols.at(item.Key).Identification.Fields().Identity);
+				const auto color = style.Palette.Resolve(symbols.at(item.Key).Value.Identification.Fields().Identity);
 				const ImVec2 anchor{static_cast<float>(item.GeographicAnchor.X), static_cast<float>(item.GeographicAnchor.Y)};
 				drawing.AddCircleFilled(anchor, 3.2f, IM_COL32(0, 0, 0, 255));
 				drawing.AddCircleFilled(anchor, 2.2f, IM_COL32(color.Red, color.Green, color.Blue, color.Alpha));
@@ -657,7 +664,8 @@ namespace NavalCommand::TacticalDisplay
 				LayoutScope = scope;
 			}
 			MapProjection projection{*this, origin, size};
-			std::map<SymbolKey, NatoApi::Symbol> symbols;
+			SymbolDiagnostics.clear();
+			std::map<SymbolKey, SymbolPresentation> symbols;
 			if (frame.Interfaces)
 			{
 				auto& providers = *frame.Interfaces;
@@ -705,12 +713,8 @@ namespace NavalCommand::TacticalDisplay
 								alignment = *result;
 							}
 						}
-						auto symbol = NatoApi::DomainConverter::FromUnit(*unit, typeDefinition, NatoApi::DomainConverter::FromAlignment(alignment), SymbolContext);
-						if (!symbol)
-						{
-							continue;
-						}
-						symbols.emplace(SymbolKey{false, id.Value}, std::move(*symbol));
+						auto symbol = SymbolPresentation::FromUnit(*unit, typeDefinition, NatoApi::DomainConverter::FromAlignment(alignment), SymbolContext);
+						symbols.emplace(SymbolKey{false, id.Value}, std::move(symbol));
 					}
 				}
 				if (auto ids = providers.Observations.GetObservationIds())
@@ -738,11 +742,7 @@ namespace NavalCommand::TacticalDisplay
 								alignment = *result;
 							}
 						}
-						auto symbol = NatoApi::DomainConverter::FromObservation(*observation, typeDefinition, NatoApi::DomainConverter::FromAlignment(alignment), SymbolContext);
-						if (!symbol)
-						{
-							continue;
-						}
+						auto symbol = SymbolPresentation::FromObservation(*observation, typeDefinition, NatoApi::DomainConverter::FromAlignment(alignment), SymbolContext);
 						std::optional<double> latitude;
 						std::optional<double> longitude;
 						if (auto exact = std::get_if<Physics::Api::Position>(&observation->Kinematics.Position))
@@ -766,7 +766,7 @@ namespace NavalCommand::TacticalDisplay
 						{
 							continue;
 						}
-						symbols.emplace(SymbolKey{true, id.Value}, std::move(*symbol));
+						symbols.emplace(SymbolKey{true, id.Value}, std::move(symbol));
 					}
 				}
 			}
@@ -778,6 +778,10 @@ namespace NavalCommand::TacticalDisplay
 		void Details(Frame& frame)
 		{
 			ImGui::TextUnformatted("TACTICAL OBJECTS");
+			if (const auto diagnostic = SymbolDiagnostics.find({SelectedContact, Selection}); diagnostic != SymbolDiagnostics.end())
+			{
+				ImGui::TextWrapped("Generic symbol: %s", diagnostic->second.c_str());
+			}
 			if (!frame.Interfaces)
 			{
 				return;
