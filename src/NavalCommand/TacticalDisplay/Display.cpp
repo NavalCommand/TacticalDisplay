@@ -245,6 +245,8 @@ namespace NavalCommand::TacticalDisplay
 				return "Surveillance";
 			case Classification::Api::Role::Decoy:
 				return "Decoy";
+			case Classification::Api::Role::GuidedMissile:
+				return "Guided missile";
 			}
 			return "Unrecognized role";
 		}

@@ -164,7 +164,7 @@ namespace NavalCommand::TacticalDisplay
 		ImGui::EndFrame();
 		ImGui::NewFrame();
 		ImGui::Begin("Visual fixture", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
-		drawing.AddText({20, 20}, IM_COL32_WHITE, "Official NATO icons: carrier / cruiser / attack submarine / rotary / fighter / AEW / jammer");
+		drawing.AddText({20, 20}, IM_COL32_WHITE, "Platform icons: carrier / guided missile cruiser / attack submarine / rotary / fighter / AEW / jammer");
 		struct IconCase
 		{
 			NatoGeometry::SymbolSet Set;
@@ -173,7 +173,7 @@ namespace NavalCommand::TacticalDisplay
 			std::uint8_t Modifier;
 		};
 		const std::array iconCases{IconCase{NatoGeometry::SymbolSet::SeaSurface, 1, 0, 0},
-								   IconCase{NatoGeometry::SymbolSet::SeaSurface, 2, 2, 0},
+								   IconCase{NatoGeometry::SymbolSet::SeaSurface, 2, 2, 33},
 								   IconCase{NatoGeometry::SymbolSet::SeaSubsurface, 1, 0, 8},
 								   IconCase{NatoGeometry::SymbolSet::Air, 2, 0, 0},
 								   IconCase{NatoGeometry::SymbolSet::Air, 1, 0, 4},
@@ -192,6 +192,10 @@ namespace NavalCommand::TacticalDisplay
 				fields.EntityType = icon.EntityType;
 				fields.EntitySubtype = icon.Subtype;
 				fields.Modifier1 = icon.Modifier;
+				if (icon.Set == NatoGeometry::SymbolSet::SeaSurface && icon.Modifier == 33)
+				{
+					fields.ThirdTen[0] = '1';
+				}
 				const auto sidc = NatoGeometry::Sidc::Create(fields);
 				ASSERT_TRUE(sidc);
 				const NatoGeometry::Symbol symbol{*sidc, {}, std::nullopt};
