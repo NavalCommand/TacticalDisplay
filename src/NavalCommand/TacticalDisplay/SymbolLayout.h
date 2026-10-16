@@ -55,6 +55,8 @@ namespace NavalCommand::TacticalDisplay
 		void Persist(std::span<const LayoutItem> items);
 	};
 
+	NatoGeometry::ScreenRectangle PositionMarkerBounds(NatoGeometry::ScreenPoint anchor);
+	bool HasDeclutteringOffset(const LayoutItem& item);
 	NatoGeometry::ScreenRectangle Translate(NatoGeometry::ScreenRectangle bounds, NatoGeometry::ScreenVector offset);
 	// Returns the first rectangle boundary met from the external geographic dot.
 	NatoGeometry::ScreenPoint ConnectorEndpoint(NatoGeometry::ScreenPoint geographicAnchor, NatoGeometry::ScreenRectangle iconBounds);

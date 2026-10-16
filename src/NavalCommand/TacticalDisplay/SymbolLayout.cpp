@@ -64,18 +64,47 @@ namespace NavalCommand::TacticalDisplay
 			}
 		};
 
-		Point Place(const LayoutItem& item, Rectangle viewport, const std::vector<Rectangle>& obstacles)
+		Point Place(const LayoutItem& item, Rectangle viewport, const std::vector<Rectangle>& placed, std::span<const LayoutItem> items)
 		{
 			const auto relative = Padded(Translate(item.Geometry.LayoutBounds, {-item.VisualAnchor.X, -item.VisualAnchor.Y}));
-			const Point preferred = item.Selected ? item.VisualAnchor : item.GeographicAnchor;
+			const Point preferred = item.GeographicAnchor;
+			std::vector<Rectangle> obstacles = placed;
+			obstacles.reserve(placed.size() + items.size());
+			std::set<std::pair<double, double>> markerCoordinates;
+			bool sharedMarker = false;
+			for (const auto& other : items)
+			{
+				if (other.Key != item.Key && markerCoordinates.emplace(other.GeographicAnchor.X, other.GeographicAnchor.Y).second)
+				{
+					obstacles.push_back(PositionMarkerBounds(other.GeographicAnchor));
+					sharedMarker = sharedMarker || DistanceSquared(other.GeographicAnchor, item.GeographicAnchor) < 0.01;
+				}
+			}
+			// A centered symbol hides its own marker. A displaced one must leave
+			// space for it, including when returning toward its geographic anchor.
+			if (!sharedMarker)
+			{
+				obstacles.push_back(PositionMarkerBounds(item.GeographicAnchor));
+			}
+			const auto overlaps = [&](Point anchor, Rectangle bounds, std::size_t index)
+			{
+				if (!sharedMarker && index + 1 == obstacles.size() && DistanceSquared(anchor, item.GeographicAnchor) < 0.01)
+				{
+					return false;
+				}
+				return Intersects(bounds, obstacles[index]);
+			};
 			const auto clear = [&](Point anchor)
 			{
 				const auto bounds = Translate(relative, {anchor.X, anchor.Y});
-				return std::ranges::none_of(obstacles,
-											[&](Rectangle obstacle)
-											{
-												return Intersects(bounds, obstacle);
-											});
+				for (std::size_t index = 0; index < obstacles.size(); ++index)
+				{
+					if (overlaps(anchor, bounds, index))
+					{
+						return false;
+					}
+				}
+				return true;
 			};
 			const auto desired = Constrain(preferred, relative, viewport);
 			if (clear(desired))
@@ -83,10 +112,6 @@ namespace NavalCommand::TacticalDisplay
 				return desired;
 			}
 			const auto previous = Constrain(item.VisualAnchor, relative, viewport);
-			if (clear(previous))
-			{
-				return previous;
-			}
 
 			std::priority_queue<Candidate> candidates;
 			std::set<std::pair<double, double>> visited;
@@ -108,9 +133,10 @@ namespace NavalCommand::TacticalDisplay
 				candidates.pop();
 				const auto bounds = Translate(relative, {candidate.Anchor.X, candidate.Anchor.Y});
 				double overlapArea = 0.0;
-				for (const auto obstacle : obstacles)
+				for (std::size_t index = 0; index < obstacles.size(); ++index)
 				{
-					if (!Intersects(bounds, obstacle))
+					const auto obstacle = obstacles[index];
+					if (!overlaps(candidate.Anchor, bounds, index))
 					{
 						continue;
 					}
@@ -134,6 +160,17 @@ namespace NavalCommand::TacticalDisplay
 			}
 			return best;
 		}
+	}
+
+	NatoGeometry::ScreenRectangle PositionMarkerBounds(Point anchor)
+	{
+		constexpr double MARKER_RADIUS_PIXELS = 3.2;
+		return {{anchor.X - MARKER_RADIUS_PIXELS, anchor.Y - MARKER_RADIUS_PIXELS}, {anchor.X + MARKER_RADIUS_PIXELS, anchor.Y + MARKER_RADIUS_PIXELS}};
+	}
+
+	bool HasDeclutteringOffset(const LayoutItem& item)
+	{
+		return DistanceSquared(item.GeographicAnchor, item.VisualAnchor) >= 0.01;
 	}
 
 	NatoGeometry::ScreenRectangle Translate(NatoGeometry::ScreenRectangle bounds, NatoGeometry::ScreenVector offset)
@@ -240,7 +277,7 @@ namespace NavalCommand::TacticalDisplay
 		obstacles.reserve(items.size());
 		for (auto* item : ordered)
 		{
-			const auto anchor = IsHovered(item->Key) ? item->VisualAnchor : Place(*item, viewport, obstacles);
+			const auto anchor = IsHovered(item->Key) ? item->VisualAnchor : Place(*item, viewport, obstacles, items);
 			const NatoGeometry::ScreenVector shift{anchor.X - item->VisualAnchor.X, anchor.Y - item->VisualAnchor.Y};
 			item->Geometry.LayoutBounds = Translate(item->Geometry.LayoutBounds, shift);
 			item->Geometry.SymbolBounds = Translate(item->Geometry.SymbolBounds, shift);

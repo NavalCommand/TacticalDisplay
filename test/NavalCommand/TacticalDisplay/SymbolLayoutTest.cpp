@@ -51,6 +51,74 @@ namespace NavalCommand::TacticalDisplay
 		}
 	}
 
+	TEST(SymbolLayoutTest, OnlyDisplacedSymbolsShowPositionMarkers)
+	{
+		auto item = MakeItem("single", {500, 400});
+		EXPECT_FALSE(HasDeclutteringOffset(item));
+		item.VisualAnchor.X += 40;
+		EXPECT_TRUE(HasDeclutteringOffset(item));
+	}
+
+	TEST(SymbolLayoutTest, ScaleReductionReclaimsOffsetsEvenForSelectedSymbols)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("first", {500, 400}), MakeItem("second", {500, 400}), MakeItem("third", {500, 400})};
+		items[1].Selected = true;
+		LayoutFrame(items, layout);
+		const auto small = items;
+		layout.Prepare(items, std::nullopt);
+		for (auto& item : items)
+		{
+			const auto bounds = Translate({{-80, -80}, {80, 80}}, {item.VisualAnchor.X, item.VisualAnchor.Y});
+			item.Geometry.SymbolBounds = bounds;
+			item.Geometry.LayoutBounds = bounds;
+		}
+		layout.Solve(items, VIEWPORT);
+		layout.Persist(items);
+		LayoutFrame(items, layout);
+		for (std::size_t index = 0; index < items.size(); ++index)
+		{
+			EXPECT_DOUBLE_EQ(items[index].VisualAnchor.X, small[index].VisualAnchor.X);
+			EXPECT_DOUBLE_EQ(items[index].VisualAnchor.Y, small[index].VisualAnchor.Y);
+		}
+		ExpectSeparated(items);
+	}
+
+	TEST(SymbolLayoutTest, HoverCollapseReclaimsOffsetsWhenHoveredKeyWasLast)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("first", {520, 350}), MakeItem("second", {450, 350})};
+		LayoutFrame(items, layout);
+		const auto initial = items;
+		LayoutFrame(items, layout, items[1].VisualAnchor, true);
+		EXPECT_TRUE(HasDeclutteringOffset(items[0]));
+		LayoutFrame(items, layout);
+		for (std::size_t index = 0; index < items.size(); ++index)
+		{
+			EXPECT_DOUBLE_EQ(items[index].VisualAnchor.X, initial[index].VisualAnchor.X);
+			EXPECT_DOUBLE_EQ(items[index].VisualAnchor.Y, initial[index].VisualAnchor.Y);
+		}
+	}
+
+	TEST(SymbolLayoutTest, DisplacedLayoutsDoNotCoverAnyPositionMarker)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("first", {500, 400}), MakeItem("second", {505, 402}), MakeItem("third", {510, 400})};
+		LayoutFrame(items, layout);
+		ExpectSeparated(items);
+		for (const auto& item : items)
+		{
+			ASSERT_TRUE(HasDeclutteringOffset(item));
+			for (const auto& other : items)
+			{
+				const auto marker = PositionMarkerBounds(other.GeographicAnchor);
+				const auto bounds = item.Geometry.LayoutBounds;
+				EXPECT_TRUE(bounds.Maximum.X <= marker.Minimum.X || bounds.Minimum.X >= marker.Maximum.X || bounds.Maximum.Y <= marker.Minimum.Y ||
+							bounds.Minimum.Y >= marker.Maximum.Y);
+			}
+		}
+	}
+
 	TEST(SymbolLayoutTest, SeparatesIdenticalPositionsAndMixedNamespacesDeterministically)
 	{
 		SymbolLayout layout;

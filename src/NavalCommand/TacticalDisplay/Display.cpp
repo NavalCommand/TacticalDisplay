@@ -10,6 +10,7 @@
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <numbers>
@@ -580,9 +581,13 @@ namespace NavalCommand::TacticalDisplay
 									IM_COL32(255, 255, 255, 230));
 				}
 			}
-			// Draw exact position dots last so coincident filled symbols cannot hide them.
+			// Displaced symbols expose their true position; centered symbols need no dot.
 			for (const auto& item : items)
 			{
+				if (!HasDeclutteringOffset(item))
+				{
+					continue;
+				}
 				const auto color = style.Palette.Resolve(symbols.at(item.Key).Identification.Fields().Identity);
 				const ImVec2 anchor{static_cast<float>(item.GeographicAnchor.X), static_cast<float>(item.GeographicAnchor.Y)};
 				drawing.AddCircleFilled(anchor, 3.2f, IM_COL32(0, 0, 0, 255));
@@ -1141,73 +1146,73 @@ namespace NavalCommand::TacticalDisplay
 			ImGui::TextColored(frame.Stale ? ImVec4{1, 0.65f, 0.25f, 1} : ImVec4{0.3f, 0.85f, 0.8f, 1}, "%s", frame.Status.c_str());
 			ImGui::Separator();
 			bool perspectiveChanged = false;
-			if (ImGui::BeginCombo("Perspective", m_State->Perspective.c_str()))
+			const int controlColumns = std::clamp(static_cast<int>(ImGui::GetContentRegionAvail().x / 300.0f), 1, 3);
+			if (ImGui::BeginTable("Presentation controls", controlColumns, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersInnerH))
 			{
-				if (ImGui::Selectable("Omniscient", m_State->Perspective == "Omniscient"))
+				const auto control = [](const char* label)
 				{
-					m_State->Perspective = "Omniscient";
-					select(std::nullopt);
-					perspectiveChanged = true;
-				}
-				if (frame.Interfaces)
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(label);
+					ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
+				};
+				control("Perspective");
+				if (ImGui::BeginCombo("##Perspective", m_State->Perspective.c_str()))
 				{
-					if (auto factions = frame.Interfaces->Factions.GetFactionIds())
+					if (ImGui::Selectable("Omniscient", m_State->Perspective == "Omniscient"))
 					{
-						for (const auto& faction : *factions)
+						m_State->Perspective = "Omniscient";
+						select(std::nullopt);
+						perspectiveChanged = true;
+					}
+					if (frame.Interfaces)
+					{
+						if (auto factions = frame.Interfaces->Factions.GetFactionIds())
 						{
-							if (ImGui::Selectable(faction.Value.c_str(), m_State->Perspective == faction.Value))
+							for (const auto& faction : *factions)
 							{
-								m_State->Perspective = faction.Value;
-								select(faction);
-								perspectiveChanged = true;
+								if (ImGui::Selectable(faction.Value.c_str(), m_State->Perspective == faction.Value))
+								{
+									m_State->Perspective = faction.Value;
+									select(faction);
+									perspectiveChanged = true;
+								}
 							}
 						}
 					}
+					ImGui::EndCombo();
 				}
-				ImGui::EndCombo();
-			}
-			ImGui::SameLine();
-			ImGui::TextDisabled("|");
-			ImGui::SameLine();
-			if (ImGui::BeginCombo("Symbol context", ContextName(m_State->SymbolContext)))
-			{
-				for (const auto context : {NatoApi::Context::Reality, NatoApi::Context::Exercise, NatoApi::Context::Simulation})
+				control("Symbol context");
+				if (ImGui::BeginCombo("##Symbol context", ContextName(m_State->SymbolContext)))
 				{
-					if (ImGui::Selectable(ContextName(context), m_State->SymbolContext == context))
+					for (const auto context : {NatoApi::Context::Reality, NatoApi::Context::Exercise, NatoApi::Context::Simulation})
 					{
-						m_State->SymbolContext = context;
+						if (ImGui::Selectable(ContextName(context), m_State->SymbolContext == context))
+						{
+							m_State->SymbolContext = context;
+						}
 					}
+					ImGui::EndCombo();
 				}
-				ImGui::EndCombo();
+				control("Symbol scale");
+				if (ImGui::SliderFloat("##Symbol scale", &m_State->SymbolScale, 0.5f, 4.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp))
+				{
+					m_State->SymbolScale = std::round(m_State->SymbolScale * 10.0f) / 10.0f;
+				}
+				control("Style");
+				ImGui::Combo("##Style", &m_State->StyleIndex, "Filled dark\0Unfilled dark\0");
+				control("Labels");
+				ImGui::Combo("##Labels", &m_State->LabelMode, "Only Selected\0Only Hovered\0Selected and Hovered\0Always\0");
+				control("Label detail");
+				ImGui::Checkbox("All labels (off: type only)", &m_State->DetailedLabels);
+				control("Speed leader (seconds)");
+				ImGui::InputFloat("##Speed leader", &m_State->SpeedLeaderSeconds, 10.0f, 60.0f, "%.0f");
+				if (!std::isfinite(m_State->SpeedLeaderSeconds))
+				{
+					m_State->SpeedLeaderSeconds = 60.0f;
+				}
+				m_State->SpeedLeaderSeconds = std::clamp(m_State->SpeedLeaderSeconds, 0.0f, 86400.0f);
+				ImGui::EndTable();
 			}
-			ImGui::Separator();
-			ImGui::SetNextItemWidth(180.0f);
-			if (ImGui::SliderFloat("Symbol scale", &m_State->SymbolScale, 0.5f, 4.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp))
-			{
-				m_State->SymbolScale = std::round(m_State->SymbolScale * 10.0f) / 10.0f;
-			}
-			ImGui::SameLine();
-			ImGui::TextDisabled("|");
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(190.0f);
-			ImGui::SetNextItemWidth(150);
-			ImGui::Combo("Style", &m_State->StyleIndex, "Filled dark\0Unfilled dark\0");
-			ImGui::SameLine();
-			ImGui::TextUnformatted("|");
-			ImGui::SameLine();
-			ImGui::Combo("Labels", &m_State->LabelMode, "Only Selected\0Only Hovered\0Selected and Hovered\0Always\0");
-			ImGui::SameLine();
-			ImGui::TextDisabled("|");
-			ImGui::SameLine();
-			ImGui::Checkbox("All labels (off: type only)", &m_State->DetailedLabels);
-			ImGui::Separator();
-			ImGui::SetNextItemWidth(180.0f);
-			ImGui::InputFloat("Speed leader (seconds)", &m_State->SpeedLeaderSeconds, 10.0f, 60.0f, "%.0f");
-			if (!std::isfinite(m_State->SpeedLeaderSeconds))
-			{
-				m_State->SpeedLeaderSeconds = 60.0f;
-			}
-			m_State->SpeedLeaderSeconds = std::clamp(m_State->SpeedLeaderSeconds, 0.0f, 86400.0f);
 			ImGui::Separator();
 			if (perspectiveChanged)
 			{
