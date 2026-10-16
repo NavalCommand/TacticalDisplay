@@ -6,6 +6,7 @@
 #endif
 
 #include <NavalCommand/Environment/Api/ITimeProvider.h>
+#include <NavalCommand/Equipment/Api/IProvider.h>
 #include <NavalCommand/Factions/Api/IProvider.h>
 #include <NavalCommand/Observations/Api/IInstanceProvider.h>
 #include <NavalCommand/Operations/Api/IProvider.h>
@@ -13,6 +14,7 @@
 #include <NavalCommand/Simulation/Api/IPauseProvider.h>
 #include <NavalCommand/Simulation/Api/ITimeCompressionController.h>
 #include <NavalCommand/Simulation/Api/ITimeCompressionProvider.h>
+#include <NavalCommand/Symbology/Nato/Api/IRenderer.h>
 #include <NavalCommand/Units/Api/IInstanceProvider.h>
 #include <NavalCommand/Units/Api/ITypeProvider.h>
 #include <chrono>
@@ -26,6 +28,7 @@ namespace NavalCommand::TacticalDisplay
 	{
 		Units::Api::IInstanceProvider& Units;
 		Units::Api::ITypeProvider& Types;
+		Equipment::Api::IProvider& Equipment;
 		Observations::Api::IInstanceProvider& Observations;
 		Operations::Api::IProvider& Operations;
 		Factions::Api::IProvider& Factions;
@@ -43,6 +46,8 @@ namespace NavalCommand::TacticalDisplay
 		bool Stale{};
 		std::string Status;
 		std::string Perspective{"Omniscient"};
+		// Composition supplies the World session identity to invalidate presentation state.
+		std::string Session;
 	};
 
 	// Acquisition retains one coherent provider view for the whole frame.
@@ -55,7 +60,7 @@ namespace NavalCommand::TacticalDisplay
 		std::unique_ptr<State> m_State;
 
 	public:
-		Display();
+		explicit Display(Symbology::Nato::Api::IRenderer& renderer);
 		~Display();
 		Display(const Display&) = delete;
 		Display& operator=(const Display&) = delete;
