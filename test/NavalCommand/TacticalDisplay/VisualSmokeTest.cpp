@@ -164,6 +164,47 @@ namespace NavalCommand::TacticalDisplay
 		ImGui::EndFrame();
 		ImGui::NewFrame();
 		ImGui::Begin("Visual fixture", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+		drawing.AddText({20, 20}, IM_COL32_WHITE, "Official NATO icons: carrier / cruiser / attack submarine / rotary / fighter / AEW / jammer");
+		struct IconCase
+		{
+			NatoGeometry::SymbolSet Set;
+			std::uint8_t EntityType;
+			std::uint8_t Subtype;
+			std::uint8_t Modifier;
+		};
+		const std::array iconCases{IconCase{NatoGeometry::SymbolSet::SeaSurface, 1, 0, 0},
+								   IconCase{NatoGeometry::SymbolSet::SeaSurface, 2, 2, 0},
+								   IconCase{NatoGeometry::SymbolSet::SeaSubsurface, 1, 0, 8},
+								   IconCase{NatoGeometry::SymbolSet::Air, 2, 0, 0},
+								   IconCase{NatoGeometry::SymbolSet::Air, 1, 0, 4},
+								   IconCase{NatoGeometry::SymbolSet::Air, 1, 0, 12},
+								   IconCase{NatoGeometry::SymbolSet::Air, 1, 0, 16}};
+		context.Style = {};
+		for (std::size_t row = 0; row < identities.size(); ++row)
+		{
+			for (std::size_t column = 0; column < iconCases.size(); ++column)
+			{
+				const auto& icon = iconCases[column];
+				NatoGeometry::SidcFields fields;
+				fields.Identity = identities[row];
+				fields.SymbolSetValue = icon.Set;
+				fields.Entity = icon.Set == NatoGeometry::SymbolSet::SeaSurface ? 12 : 11;
+				fields.EntityType = icon.EntityType;
+				fields.EntitySubtype = icon.Subtype;
+				fields.Modifier1 = icon.Modifier;
+				const auto sidc = NatoGeometry::Sidc::Create(fields);
+				ASSERT_TRUE(sidc);
+				const NatoGeometry::Symbol symbol{*sidc, {}, std::nullopt};
+				context.VisualAnchor = {75.0 + column * 140, 100.0 + row * 110};
+				context.GeographicAnchor = context.VisualAnchor;
+				EXPECT_TRUE(renderer.Render(symbol, context).WasDrawn);
+			}
+		}
+		SaveImage(drawing, "platform-icons.ppm");
+		ImGui::End();
+		ImGui::EndFrame();
+		ImGui::NewFrame();
+		ImGui::Begin("Visual fixture", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
 		drawing.AddText({20, 20}, IM_COL32_WHITE, "Six independent objects: overlapping true positions, measured type labels");
 		SymbolLayout layout;
 		std::vector<LayoutItem> items;

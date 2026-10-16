@@ -835,6 +835,7 @@ namespace NavalCommand::TacticalDisplay
 					ImGui::Text("Exact type: %s", typeLabel.c_str());
 					if (exactUnitType)
 					{
+						ImGui::Text("Primary platform role: %s", exactUnitType->PrimaryPlatformRole ? RoleName(*exactUnitType->PrimaryPlatformRole) : "Unspecified");
 						ImGui::Text("Platform roles: %s", RoleList(exactUnitType->PlatformRoles).c_str());
 					}
 				}
@@ -997,6 +998,7 @@ namespace NavalCommand::TacticalDisplay
 					ImGui::Text("Subcategory: %s", SubCategoryName(unitType->UnitSubCategory));
 					ImGui::Text("Category: %s", CategoryName(Classification::Api::GetCategory(unitType->UnitSubCategory)));
 					ImGui::Text("Dimension: %s", DimensionName(Classification::Api::GetDimension(Classification::Api::GetCategory(unitType->UnitSubCategory))));
+					ImGui::Text("Primary platform role: %s", unitType->PrimaryPlatformRole ? RoleName(*unitType->PrimaryPlatformRole) : "Unspecified");
 					ImGui::Text("Platform roles: %s", RoleList(unitType->PlatformRoles).c_str());
 					const auto selectedLoadout = std::find_if(unitType->Loadouts.begin(),
 															  unitType->Loadouts.end(),

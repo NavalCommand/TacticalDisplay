@@ -36,7 +36,6 @@ namespace NavalCommand::TacticalDisplay
 			NatoGeometry::ScreenPoint VisualAnchor;
 			NatoGeometry::ScreenRectangle SymbolBounds;
 			NatoGeometry::ScreenRectangle LayoutBounds;
-			bool Selected{};
 			bool Seen{};
 		};
 		std::map<SymbolKey, Placement> m_Previous;

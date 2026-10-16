@@ -250,8 +250,8 @@ namespace NavalCommand::TacticalDisplay
 								[&](const LayoutItem& item)
 								{
 									const auto previous = m_Previous.find(item.Key);
-									return previous != m_Previous.end() && previous->second.Selected == item.Selected &&
-										   previous->second.GeographicAnchor.X == item.GeographicAnchor.X && previous->second.GeographicAnchor.Y == item.GeographicAnchor.Y &&
+									return previous != m_Previous.end() && previous->second.GeographicAnchor.X == item.GeographicAnchor.X &&
+										   previous->second.GeographicAnchor.Y == item.GeographicAnchor.Y &&
 										   sameRectangle(previous->second.SymbolBounds, item.Geometry.SymbolBounds) &&
 										   sameRectangle(previous->second.LayoutBounds, item.Geometry.LayoutBounds);
 								}))
@@ -269,8 +269,8 @@ namespace NavalCommand::TacticalDisplay
 		std::ranges::sort(ordered,
 						  [&](const LayoutItem* first, const LayoutItem* second)
 						  {
-							  const int firstPriority = IsHovered(first->Key) ? 2 : first->Selected ? 1 : 0;
-							  const int secondPriority = IsHovered(second->Key) ? 2 : second->Selected ? 1 : 0;
+							  const int firstPriority = IsHovered(first->Key) ? 1 : 0;
+							  const int secondPriority = IsHovered(second->Key) ? 1 : 0;
 							  return firstPriority != secondPriority ? firstPriority > secondPriority : first->Key < second->Key;
 						  });
 		std::vector<Rectangle> obstacles;
@@ -294,7 +294,7 @@ namespace NavalCommand::TacticalDisplay
 		}
 		for (const auto& item : items)
 		{
-			m_Previous.insert_or_assign(item.Key, Placement{item.GeographicAnchor, item.VisualAnchor, item.Geometry.SymbolBounds, item.Geometry.LayoutBounds, item.Selected, true});
+			m_Previous.insert_or_assign(item.Key, Placement{item.GeographicAnchor, item.VisualAnchor, item.Geometry.SymbolBounds, item.Geometry.LayoutBounds, true});
 		}
 		std::erase_if(m_Previous,
 					  [](const auto& entry)

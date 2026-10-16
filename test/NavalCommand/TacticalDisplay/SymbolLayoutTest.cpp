@@ -51,6 +51,25 @@ namespace NavalCommand::TacticalDisplay
 		}
 	}
 
+	TEST(SymbolLayoutTest, SelectionDoesNotRearrangeUnchangedSymbolGeometry)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("first", {500, 400}), MakeItem("second", {500, 400}), MakeItem("third", {500, 400})};
+		LayoutFrame(items, layout);
+		const auto initial = items;
+		for (std::size_t selected = 0; selected < items.size(); ++selected)
+		{
+			items[selected].Selected = true;
+			LayoutFrame(items, layout);
+			for (std::size_t index = 0; index < items.size(); ++index)
+			{
+				EXPECT_DOUBLE_EQ(items[index].VisualAnchor.X, initial[index].VisualAnchor.X);
+				EXPECT_DOUBLE_EQ(items[index].VisualAnchor.Y, initial[index].VisualAnchor.Y);
+			}
+			items[selected].Selected = false;
+		}
+	}
+
 	TEST(SymbolLayoutTest, OnlyDisplacedSymbolsShowPositionMarkers)
 	{
 		auto item = MakeItem("single", {500, 400});
