@@ -52,6 +52,68 @@ namespace NavalCommand::TacticalDisplay
 		}
 	}
 
+	TEST(SymbolLayoutTest, HoverWithoutGeometryChangesRetainsEveryAnchor)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("a", {500, 400}), MakeItem("b", {500, 400}), MakeItem("c", {500, 400})};
+		LayoutFrame(items, layout);
+		const auto initial = items;
+		for (const auto& target : initial)
+		{
+			LayoutFrame(items, layout, target.VisualAnchor);
+			for (std::size_t index = 0; index < items.size(); ++index)
+			{
+				EXPECT_DOUBLE_EQ(items[index].VisualAnchor.X, initial[index].VisualAnchor.X);
+				EXPECT_DOUBLE_EQ(items[index].VisualAnchor.Y, initial[index].VisualAnchor.Y);
+			}
+		}
+	}
+
+	TEST(SymbolLayoutTest, StickyRetainsClearOffsetsAfterShrinkAndSeparation)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("a", {500, 400}), MakeItem("b", {501, 400})};
+		layout.Prepare(items, std::nullopt);
+		Measure(items, layout);
+		layout.Solve(items, VIEWPORT, DeclutteringMode::Sticky);
+		layout.Persist(items);
+		const auto initial = items;
+		// Separate true positions, leaving both current visual boxes collision-free.
+		items[1].GeographicAnchor.X += 300;
+		for (int frame = 0; frame < 100; ++frame)
+		{
+			layout.Prepare(items, std::nullopt);
+			Measure(items, layout);
+			for (auto& item : items)
+			{
+				item.Geometry.LayoutBounds = Translate({{-10, -10}, {10, 10}}, {item.VisualAnchor.X, item.VisualAnchor.Y});
+			}
+			layout.Solve(items, VIEWPORT, DeclutteringMode::Sticky);
+			ExpectSeparated(items);
+			for (std::size_t index = 0; index < items.size(); ++index)
+			{
+				EXPECT_DOUBLE_EQ(items[index].VisualAnchor.X - items[index].GeographicAnchor.X, initial[index].VisualAnchor.X - initial[index].GeographicAnchor.X);
+				EXPECT_DOUBLE_EQ(items[index].VisualAnchor.Y - items[index].GeographicAnchor.Y, initial[index].VisualAnchor.Y - initial[index].GeographicAnchor.Y);
+			}
+			layout.Persist(items);
+		}
+	}
+
+	TEST(SymbolLayoutTest, StickyRepairsNewCollisionWhileKeepingHoveredAnchor)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("a", {500, 400}), MakeItem("b", {650, 400})};
+		LayoutFrame(items, layout);
+		const auto anchor = items[0].VisualAnchor;
+		items[1].GeographicAnchor = items[0].GeographicAnchor;
+		layout.Prepare(items, anchor);
+		Measure(items, layout, true);
+		layout.Solve(items, VIEWPORT, DeclutteringMode::Sticky);
+		ExpectSeparated(items);
+		EXPECT_DOUBLE_EQ(items[0].VisualAnchor.X, anchor.X);
+		EXPECT_DOUBLE_EQ(items[0].VisualAnchor.Y, anchor.Y);
+	}
+
 	TEST(SymbolLayoutTest, SmallRelativeMotionDoesNotAlternateBetweenDistantPlacements)
 	{
 		SymbolLayout layout;

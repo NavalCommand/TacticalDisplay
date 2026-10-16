@@ -1,6 +1,6 @@
 find_package(GTest CONFIG REQUIRED)
 include(GoogleTest)
-NavalCommandAddDependency(https://github.com/NavalCommand/Symbology.Nato.ImGui.git 762c965d2e9762b14310d76474852fd639a9a62e)
+NavalCommandAddDependency(https://github.com/NavalCommand/Symbology.Nato.ImGui.git fea5986c7b3c111105e2d8b96c8c78da5bd18735)
 find_package(imgui CONFIG REQUIRED)
 
 add_executable(NavalCommand.TacticalDisplay.Test

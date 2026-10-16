@@ -24,8 +24,8 @@ visible separators.
 
 Screen-space decluttering keeps individual objects separate using the injected
 renderer’s measured icon/modifier/visible-label bounds. Hover fixes the displayed
-icon while its labels expand. Selection alone does not affect layout order or
-invalidate an unchanged solution; label visibility changes still require layout.
+icon while its labels expand. Hover and selection alone do not invalidate an unchanged measured solution;
+selection does not affect layout order; label visibility changes still require layout.
 Only displaced icons expose exact-position dots and subdued dashed connectors.
 Layout reserves space around geographic markers, including coincident markers,
 so neighboring icons and labels do not cover them when a placement is feasible. Navigation, speed leaders and uncertainty remain
@@ -34,16 +34,20 @@ geographically anchored.
 The deterministic search is bounded. In overconstrained viewports labels can clip
 and symbols can still overlap; objects remain in the tactical list and no clusters
 or aggregate symbols are created. Session and perspective changes discard layout
-state. Ordinary pan and zoom reuse offsets and allow symbols to return to their
-actual anchors as room becomes available. After geometry or hover changes, layout
-searches from the geographic anchor rather than accepting an inflated old offset
-after scale or label visibility changes. During ordinary object motion, spatial
-hysteresis retains a clear placement unless the displacement improvement exceeds
-an eight-pixel deadband plus one quarter of the relocation distance. Collision
-repairs prefer nearby positions and leave four pixels of extra clearance. This
-prevents small position/label changes from repeatedly swapping nearby symbols.
+state. The Decluttering selector offers:
+
+- Adaptive (default): reuse offsets during ordinary motion with spatial hysteresis;
+  relax displacement when scale, label visibility or available space changes.
+- Sticky: keep each existing offset while its measured bounds remain clear of
+  other objects, geographic markers and viewport limits. Search for a replacement
+  only when a collision or boundary violation requires it. Shrinking symbols,
+  hiding labels or separating objects alone does not pull them back to their anchors.
+
+Hover pins the current icon when its labels expand. Unchanged hover geometry
+performs no collision search. Collision search is bounded in both modes; impossible
+layouts remain best effort.
 
 `NavalCommand.TacticalDisplay.Test` covers layout, hover, hit testing and rendering
 integration. The visual smoke fixture writes `symbol-styles.ppm` and
-`measured-scene.ppm` and `platform-icons.ppm` in its CTest working directory,
+`measured-scene.ppm` and `platform-icons.ppm` and `primary-role-icons.ppm` in its CTest working directory,
 using real ImGui geometry and font-atlas pixels without a GPU or Sea Power session.

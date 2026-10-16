@@ -28,6 +28,12 @@ namespace NavalCommand::TacticalDisplay
 		bool Selected{};
 	};
 
+	enum class DeclutteringMode
+	{
+		Adaptive,
+		Sticky
+	};
+
 	class SymbolLayout
 	{
 		struct Placement
@@ -40,7 +46,7 @@ namespace NavalCommand::TacticalDisplay
 		};
 		std::map<SymbolKey, Placement> m_Previous;
 		std::optional<SymbolKey> m_Hovered;
-		std::optional<SymbolKey> m_LastSolvedHover;
+		DeclutteringMode m_LastMode{DeclutteringMode::Adaptive};
 		std::optional<NatoGeometry::ScreenRectangle> m_LastViewport;
 
 	public:
@@ -50,7 +56,7 @@ namespace NavalCommand::TacticalDisplay
 		void Prepare(std::span<LayoutItem> items, std::optional<NatoGeometry::ScreenPoint> mouse);
 		bool IsHovered(const SymbolKey& key) const;
 		std::optional<SymbolKey> HitTest(std::span<const LayoutItem> items, NatoGeometry::ScreenPoint mouse) const;
-		void Solve(std::span<LayoutItem> items, NatoGeometry::ScreenRectangle viewport);
+		void Solve(std::span<LayoutItem> items, NatoGeometry::ScreenRectangle viewport, DeclutteringMode mode = DeclutteringMode::Adaptive);
 		void Persist(std::span<const LayoutItem> items);
 	};
 

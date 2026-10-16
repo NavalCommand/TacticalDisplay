@@ -322,6 +322,7 @@ namespace NavalCommand::TacticalDisplay
 		bool MapHovered{};
 		bool MapClicked{};
 		int StyleIndex{};
+		int DeclutteringIndex{};
 		SymbolLayout Layout;
 		std::string LayoutScope;
 		HWND Window{};
@@ -532,7 +533,7 @@ namespace NavalCommand::TacticalDisplay
 						  {
 							  return !item.Geometry.Supported;
 						  });
-			Layout.Solve(items, viewport);
+			Layout.Solve(items, viewport, DeclutteringIndex == 1 ? DeclutteringMode::Sticky : DeclutteringMode::Adaptive);
 
 			auto& drawing = *ImGui::GetWindowDrawList();
 			// Geographic graphics are all below the displaced presentation layer.
@@ -1204,6 +1205,8 @@ namespace NavalCommand::TacticalDisplay
 				}
 				control("Style");
 				ImGui::Combo("##Style", &m_State->StyleIndex, "Filled dark\0Unfilled dark\0");
+				control("Decluttering");
+				ImGui::Combo("##Decluttering", &m_State->DeclutteringIndex, "Adaptive\0Sticky\0");
 				control("Labels");
 				ImGui::Combo("##Labels", &m_State->LabelMode, "Only Selected\0Only Hovered\0Selected and Hovered\0Always\0");
 				control("Label detail");

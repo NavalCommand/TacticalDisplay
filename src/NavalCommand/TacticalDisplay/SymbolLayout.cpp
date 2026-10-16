@@ -66,7 +66,7 @@ namespace NavalCommand::TacticalDisplay
 			}
 		};
 
-		Point Place(const LayoutItem& item, Rectangle viewport, const std::vector<Rectangle>& placed, std::span<const LayoutItem> items, bool stabilize)
+		Point Place(const LayoutItem& item, Rectangle viewport, const std::vector<Rectangle>& placed, std::span<const LayoutItem> items, bool stabilize, bool sticky)
 		{
 			const auto relative = Padded(Translate(item.Geometry.LayoutBounds, {-item.VisualAnchor.X, -item.VisualAnchor.Y}));
 			const Point preferred = item.GeographicAnchor;
@@ -119,6 +119,10 @@ namespace NavalCommand::TacticalDisplay
 			}
 			const auto previous = Constrain(item.VisualAnchor, relative, viewport);
 			const bool previousClear = stabilize && clear(previous);
+			if (sticky && previousClear)
+			{
+				return previous;
+			}
 
 			std::priority_queue<Candidate> candidates;
 			std::set<std::pair<double, double>> visited;
@@ -200,7 +204,6 @@ namespace NavalCommand::TacticalDisplay
 	{
 		m_Previous.clear();
 		m_Hovered.reset();
-		m_LastSolvedHover.reset();
 		m_LastViewport.reset();
 	}
 
@@ -254,7 +257,7 @@ namespace NavalCommand::TacticalDisplay
 		return hit;
 	}
 
-	void SymbolLayout::Solve(std::span<LayoutItem> items, Rectangle viewport)
+	void SymbolLayout::Solve(std::span<LayoutItem> items, Rectangle viewport, DeclutteringMode mode)
 	{
 		const auto sameRectangle = [](Rectangle first, Rectangle second)
 		{
@@ -263,7 +266,7 @@ namespace NavalCommand::TacticalDisplay
 		};
 		// Repeated provider frames need no collision search. Measurements still
 		// reflect the current font, style, visibility and richness.
-		if (m_LastViewport && sameRectangle(*m_LastViewport, viewport) && m_LastSolvedHover == m_Hovered && m_Previous.size() == items.size() &&
+		if (m_LastViewport && sameRectangle(*m_LastViewport, viewport) && m_LastMode == mode && m_Previous.size() == items.size() &&
 			std::ranges::all_of(items,
 								[&](const LayoutItem& item)
 								{
@@ -276,7 +279,7 @@ namespace NavalCommand::TacticalDisplay
 		{
 			return;
 		}
-		const bool preservePlacements = m_LastViewport && sameRectangle(*m_LastViewport, viewport) && m_LastSolvedHover == m_Hovered &&
+		const bool preservePlacements = m_LastViewport && sameRectangle(*m_LastViewport, viewport) && m_LastMode == mode &&
 										std::ranges::all_of(items,
 															[&](const LayoutItem& item)
 															{
@@ -297,7 +300,7 @@ namespace NavalCommand::TacticalDisplay
 																	   std::abs(priorLayout.Maximum.Y - item.Geometry.LayoutBounds.Maximum.Y) <= PLACEMENT_DEADBAND_PIXELS;
 															});
 		m_LastViewport = viewport;
-		m_LastSolvedHover = m_Hovered;
+		m_LastMode = mode;
 		std::vector<LayoutItem*> ordered;
 		ordered.reserve(items.size());
 		for (auto& item : items)
@@ -315,8 +318,8 @@ namespace NavalCommand::TacticalDisplay
 		obstacles.reserve(items.size());
 		for (auto* item : ordered)
 		{
-			const bool stabilize = preservePlacements && m_Previous.contains(item->Key);
-			const auto anchor = IsHovered(item->Key) ? item->VisualAnchor : Place(*item, viewport, obstacles, items, stabilize);
+			const bool stabilize = (mode == DeclutteringMode::Sticky || preservePlacements) && m_Previous.contains(item->Key);
+			const auto anchor = IsHovered(item->Key) ? item->VisualAnchor : Place(*item, viewport, obstacles, items, stabilize, mode == DeclutteringMode::Sticky);
 			const NatoGeometry::ScreenVector shift{anchor.X - item->VisualAnchor.X, anchor.Y - item->VisualAnchor.Y};
 			item->Geometry.LayoutBounds = Translate(item->Geometry.LayoutBounds, shift);
 			item->Geometry.SymbolBounds = Translate(item->Geometry.SymbolBounds, shift);

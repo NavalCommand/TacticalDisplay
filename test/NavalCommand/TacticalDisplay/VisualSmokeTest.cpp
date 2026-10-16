@@ -1,3 +1,4 @@
+#include <NavalCommand/Symbology/Nato/Api/DomainConverter.h>
 #include <NavalCommand/Symbology/Nato/ImGui/Renderer.h>
 #include <NavalCommand/TacticalDisplay/SymbolLayout.h>
 #include <algorithm>
@@ -218,6 +219,40 @@ namespace NavalCommand::TacticalDisplay
 		EXPECT_FALSE(blackAt(78, 92));	 // Space beside the tower.
 		EXPECT_TRUE(blackAt(650, 108));	 // Fixed-wing right lobe.
 		EXPECT_FALSE(blackAt(635, 113)); // Gap below the wing junction.
+		ImGui::End();
+		ImGui::EndFrame();
+		ImGui::NewFrame();
+		ImGui::Begin("Visual fixture", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+		drawing.AddText({20, 20}, IM_COL32_WHITE, "Primary role: ASW DD / ASW submarine / multipurpose submarine / ASW carrier / cargo / ASW helo");
+		using Classification::Api::Role;
+		using Classification::Api::SubCategory;
+		const std::array roleCases{std::pair{SubCategory::Destroyer, std::optional{Role::AntiSubmarineWarfare}},
+								   std::pair{SubCategory::Submarine, std::optional{Role::AntiSubmarineWarfare}},
+								   std::pair{SubCategory::Submarine, std::optional<Role>{}},
+								   std::pair{SubCategory::AircraftCarrier, std::optional{Role::AntiSubmarineWarfare}},
+								   std::pair{SubCategory::AuxiliaryVessel, std::optional{Role::Transport}},
+								   std::pair{SubCategory::RotaryWingAircraft, std::optional{Role::AntiSubmarineWarfare}}};
+		for (std::size_t row = 0; row < identities.size(); ++row)
+		{
+			for (std::size_t column = 0; column < roleCases.size(); ++column)
+			{
+				Units::Api::Instance unit{};
+				Units::Api::Type type{};
+				type.Id = unit.Type;
+				type.UnitSubCategory = roleCases[column].first;
+				type.PrimaryPlatformRole = roleCases[column].second;
+				if (type.PrimaryPlatformRole)
+				{
+					type.PlatformRoles = {*type.PrimaryPlatformRole};
+				}
+				const auto symbol = NatoGeometry::DomainConverter::FromUnit(unit, type, identities[row]);
+				ASSERT_TRUE(symbol);
+				context.VisualAnchor = {85.0 + column * 160, 100.0 + row * 110};
+				context.GeographicAnchor = context.VisualAnchor;
+				EXPECT_TRUE(renderer.Render(*symbol, context).WasDrawn);
+			}
+		}
+		SaveImage(drawing, "primary-role-icons.ppm");
 		ImGui::End();
 		ImGui::EndFrame();
 		ImGui::NewFrame();
