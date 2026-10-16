@@ -1,6 +1,6 @@
 #include <NavalCommand/Environment/Api/ITimeProviderMock.h>
-#include <NavalCommand/Error/Api/MakeError.h>
 #include <NavalCommand/Equipment/Api/IProviderMock.h>
+#include <NavalCommand/Error/Api/MakeError.h>
 #include <NavalCommand/Factions/Api/IProviderMock.h>
 #include <NavalCommand/Observations/Api/IInstanceProviderMock.h>
 #include <NavalCommand/Operations/Api/IProviderMock.h>
@@ -20,11 +20,14 @@ namespace NavalCommand::TacticalDisplay
 	class NoOpRenderer final : public Symbology::Nato::Api::IRenderer
 	{
 	public:
-		Symbology::Nato::Api::RenderResult Render(
-			const Symbology::Nato::Api::Symbol&,
-			const Symbology::Nato::Api::RenderContext& context) override
+		Symbology::Nato::Api::MeasureResult Measure(const Symbology::Nato::Api::Symbol&, const Symbology::Nato::Api::RenderContext&) override
 		{
-			return {{context.Anchor, context.Anchor}, false};
+			return {};
+		}
+
+		Symbology::Nato::Api::RenderResult Render(const Symbology::Nato::Api::Symbol&, const Symbology::Nato::Api::RenderContext& context) override
+		{
+			return {{context.VisualAnchor, context.VisualAnchor}, false};
 		}
 	};
 
@@ -81,8 +84,7 @@ namespace NavalCommand::TacticalDisplay
 						if (id.Value == "contact")
 						{
 							observation.ObservedFaction = decltype(observation.ObservedFaction)::Known({"red"});
-							observation.Type = decltype(observation.Type)::Known<Classification::Api::Category>(
-								Classification::Api::Category::SurfaceVessel);
+							observation.Type = decltype(observation.Type)::Known<Classification::Api::Category>(Classification::Api::Category::SurfaceVessel);
 						}
 						Observations::Api::PartiallyLocalizedPosition position;
 						if (id.Value == "contact")
@@ -148,7 +150,7 @@ int main(int argc, char** argv)
 			return TacticalDisplay::Frame{fixture,
 										  TacticalDisplay::Providers{fixture->Units,
 																	 fixture->Types,
-												 fixture->Equipment,
+																	 fixture->Equipment,
 																	 fixture->Observations,
 																	 fixture->Operations,
 																	 fixture->Factions,

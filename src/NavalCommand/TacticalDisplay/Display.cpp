@@ -1,6 +1,7 @@
 #include <NavalCommand/Error/Api/ErrorCondition.h>
 #include <NavalCommand/Symbology/Nato/Api/DomainConverter.h>
 #include <NavalCommand/TacticalDisplay/Display.h>
+#include <NavalCommand/TacticalDisplay/SymbolLayout.h>
 #define NOMINMAX
 #include <Windows.h>
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
+#include <map>
 #include <mutex>
 #include <numbers>
 #include <string>
@@ -30,9 +32,7 @@ namespace NavalCommand::TacticalDisplay
 		constexpr ImU32 UNIT_COLOR = IM_COL32(80, 215, 210, 255);
 		namespace NatoApi = NavalCommand::Symbology::Nato::Api;
 
-		std::string DisplayName(const std::string& fallback,
-							   const std::optional<std::string>& displayName,
-							   const std::optional<std::string>& alternativeDisplayName = std::nullopt)
+		std::string DisplayName(const std::string& fallback, const std::optional<std::string>& displayName, const std::optional<std::string>& alternativeDisplayName = std::nullopt)
 		{
 			std::string label = displayName && !displayName->empty() ? *displayName : fallback;
 			if (alternativeDisplayName && !alternativeDisplayName->empty() && *alternativeDisplayName != label)
@@ -318,6 +318,9 @@ namespace NavalCommand::TacticalDisplay
 		bool DetailedLabels{true};
 		bool MapHovered{};
 		bool MapClicked{};
+		int StyleIndex{};
+		SymbolLayout Layout;
+		std::string LayoutScope;
 		HWND Window{};
 		ID3D11Device* Device{};
 		ID3D11DeviceContext* Context{};
@@ -462,78 +465,130 @@ namespace NavalCommand::TacticalDisplay
 
 		class MapProjection final : public NatoApi::IMapProjection
 		{
-				const State& Owner;
-				ImVec2 Origin;
-				ImVec2 Size;
+			const State& Owner;
+			ImVec2 Origin;
+			ImVec2 Size;
 
-			public:
-				MapProjection(const State& owner, ImVec2 origin, ImVec2 size) : Owner{owner}, Origin{origin}, Size{size}
-				{
-				}
+		public:
+			MapProjection(const State& owner, ImVec2 origin, ImVec2 size) : Owner{owner}, Origin{origin}, Size{size}
+			{
+			}
 
-				NatoApi::ScreenPoint Project(NatoApi::GeographicCoordinate coordinate) const noexcept override
-				{
-					const ImVec2 point = Owner.Project(coordinate.LatitudeDegrees, coordinate.LongitudeDegrees, Origin, Size);
-					return {point.x, point.y};
-				}
+			NatoApi::ScreenPoint Project(NatoApi::GeographicCoordinate coordinate) const noexcept override
+			{
+				const ImVec2 point = Owner.Project(coordinate.LatitudeDegrees, coordinate.LongitudeDegrees, Origin, Size);
+				return {point.x, point.y};
+			}
 
-				NatoApi::ScreenVector ProjectLocalOffsetMeters(
-					NatoApi::GeographicCoordinate coordinate,
-					double eastMeters,
-					double northMeters) const noexcept override
-				{
-					const double centerLongitudeScale = std::max(0.05, std::cos(Owner.CenterLatitude / RADIANS_TO_DEGREES));
-					const double localLongitudeScale = std::max(0.05, std::cos(coordinate.LatitudeDegrees / RADIANS_TO_DEGREES));
-					const double pixelsPerMeter = Owner.PixelsPerDegree / METERS_PER_DEGREE;
-					return {eastMeters * pixelsPerMeter * centerLongitudeScale / localLongitudeScale, -northMeters * pixelsPerMeter};
-				}
+			NatoApi::ScreenVector ProjectLocalOffsetMeters(NatoApi::GeographicCoordinate coordinate, double eastMeters, double northMeters) const noexcept override
+			{
+				const double centerLongitudeScale = std::max(0.05, std::cos(Owner.CenterLatitude / RADIANS_TO_DEGREES));
+				const double localLongitudeScale = std::max(0.05, std::cos(coordinate.LatitudeDegrees / RADIANS_TO_DEGREES));
+				const double pixelsPerMeter = Owner.PixelsPerDegree / METERS_PER_DEGREE;
+				return {eastMeters * pixelsPerMeter * centerLongitudeScale / localLongitudeScale, -northMeters * pixelsPerMeter};
+			}
 		};
 
-		bool DrawNatoSymbol(
-			NatoApi::Symbol& symbol,
-			std::string_view id,
-			bool contact,
-			MapProjection& projection,
-			ImVec2 anchor,
-			ImVec2 origin,
-			ImVec2 size)
+		void RenderScene(const std::map<SymbolKey, NatoApi::Symbol>& symbols, MapProjection& projection, ImVec2 origin, ImVec2 size)
 		{
-			const bool selected = Selection == id && SelectedContact == contact;
-			const NatoApi::RenderContext renderContext{
-				{anchor.x, anchor.y},
-				{{origin.x, origin.y}, {origin.x + size.x, origin.y + size.y}},
-				&projection,
-				SymbolScale,
-				0.0,
-				SpeedLeaderSeconds,
-				LabelMode == 3 || (selected && (LabelMode == 0 || LabelMode == 2)),
-				DetailedLabels,
-				MapHovered && (LabelMode == 1 || LabelMode == 2)};
-			const NatoApi::RenderResult result = Renderer.Render(symbol, renderContext);
-			if (!result.WasDrawn)
+			const NatoApi::ScreenRectangle viewport{{origin.x, origin.y}, {origin.x + size.x, origin.y + size.y}};
+			const auto style = NatoApi::SymbolStyle::FromPreset(static_cast<NatoApi::StylePreset>(StyleIndex));
+			std::vector<LayoutItem> items;
+			items.reserve(symbols.size());
+			for (const auto& [key, symbol] : symbols)
 			{
-				return false;
+				const auto& location = symbol.ExternalAmplifiers.Position->Location;
+				const auto anchor = projection.Project({*location.LatitudeDegrees, *location.LongitudeDegrees});
+				if (viewport.Contains(anchor))
+				{
+					items.push_back({key, anchor, anchor, {}, Selection == key.Id && SelectedContact == key.Contact});
+				}
+			}
+			const ImVec2 mouse = ImGui::GetIO().MousePos;
+			Layout.Prepare(items, MapHovered ? std::optional<NatoApi::ScreenPoint>{{mouse.x, mouse.y}} : std::nullopt);
+			const auto makeContext = [&](const LayoutItem& item)
+			{
+				NatoApi::RenderContext context;
+				context.GeographicAnchor = item.GeographicAnchor;
+				context.VisualAnchor = item.VisualAnchor;
+				context.Viewport = viewport;
+				context.Projection = &projection;
+				context.SymbolScale = SymbolScale;
+				context.SpeedLeaderTimeHorizonSeconds = SpeedLeaderSeconds;
+				context.ShowLabels = LabelMode == 3 || (item.Selected && (LabelMode == 0 || LabelMode == 2)) || (Layout.IsHovered(item.Key) && (LabelMode == 1 || LabelMode == 2));
+				context.DetailedLabels = DetailedLabels;
+				context.Style = style;
+				return context;
+			};
+			for (auto& item : items)
+			{
+				item.Geometry = Renderer.Measure(symbols.at(item.Key), makeContext(item));
+			}
+			std::erase_if(items,
+						  [](const LayoutItem& item)
+						  {
+							  return !item.Geometry.Supported;
+						  });
+			Layout.Solve(items, viewport);
+
+			auto& drawing = *ImGui::GetWindowDrawList();
+			// Geographic graphics are all below the displaced presentation layer.
+			for (const auto& item : items)
+			{
+				auto context = makeContext(item);
+				context.Layer = NatoApi::RenderLayer::Geographic;
+				Renderer.Render(symbols.at(item.Key), context);
+				const auto endpoint = ConnectorEndpoint(item.GeographicAnchor, item.Geometry.SymbolBounds);
+				const double horizontal = endpoint.X - item.GeographicAnchor.X;
+				const double vertical = endpoint.Y - item.GeographicAnchor.Y;
+				const double length = std::hypot(horizontal, vertical);
+				constexpr double CONNECTOR_DASH_PIXELS = 3.0;
+				constexpr double CONNECTOR_PERIOD_PIXELS = 7.0;
+				if (length > 3.0)
+				{
+					for (double offset = 0.0; offset < length; offset += CONNECTOR_PERIOD_PIXELS)
+					{
+						const double end = std::min(offset + CONNECTOR_DASH_PIXELS, length);
+						drawing.AddLine(
+							{static_cast<float>(item.GeographicAnchor.X + horizontal * offset / length), static_cast<float>(item.GeographicAnchor.Y + vertical * offset / length)},
+							{static_cast<float>(item.GeographicAnchor.X + horizontal * end / length), static_cast<float>(item.GeographicAnchor.Y + vertical * end / length)},
+							IM_COL32(165, 175, 185, 180),
+							1.0f);
+					}
+				}
+			}
+			// A click chooses exactly one object, including overconstrained scenes.
+			if (MapClicked)
+			{
+				if (const auto clicked = Layout.HitTest(items, {mouse.x, mouse.y}))
+				{
+					Selection = clicked->Id;
+					SelectedContact = clicked->Contact;
+				}
 			}
 
-			const ImVec2 mouse = ImGui::GetIO().MousePos;
-			const bool containsMouse = mouse.x >= result.SymbolBounds.Minimum.X && mouse.x <= result.SymbolBounds.Maximum.X
-				&& mouse.y >= result.SymbolBounds.Minimum.Y && mouse.y <= result.SymbolBounds.Maximum.Y;
-			if (MapClicked && containsMouse)
+			for (const auto& item : items)
 			{
-				Selection = id;
-				SelectedContact = contact;
+				auto context = makeContext(item);
+				context.Layer = NatoApi::RenderLayer::Presentation;
+				Renderer.Render(symbols.at(item.Key), context);
+				if (Selection == item.Key.Id && SelectedContact == item.Key.Contact)
+				{
+					const auto bounds = item.Geometry.SymbolBounds;
+					drawing.AddRect({static_cast<float>(bounds.Minimum.X - 3), static_cast<float>(bounds.Minimum.Y - 3)},
+									{static_cast<float>(bounds.Maximum.X + 3), static_cast<float>(bounds.Maximum.Y + 3)},
+									IM_COL32(255, 255, 255, 230));
+				}
 			}
-			if (Selection == id && SelectedContact == contact)
+			// Draw exact position dots last so coincident filled symbols cannot hide them.
+			for (const auto& item : items)
 			{
-				ImGui::GetWindowDrawList()->AddRect(
-					{static_cast<float>(result.SymbolBounds.Minimum.X - 3.0), static_cast<float>(result.SymbolBounds.Minimum.Y - 3.0)},
-					{static_cast<float>(result.SymbolBounds.Maximum.X + 3.0), static_cast<float>(result.SymbolBounds.Maximum.Y + 3.0)},
-					IM_COL32(255, 255, 255, 230),
-					0.0f,
-					ImDrawFlags_None,
-					1.5f);
+				const auto color = style.Palette.Resolve(symbols.at(item.Key).Identification.Fields().Identity);
+				const ImVec2 anchor{static_cast<float>(item.GeographicAnchor.X), static_cast<float>(item.GeographicAnchor.Y)};
+				drawing.AddCircleFilled(anchor, 3.2f, IM_COL32(0, 0, 0, 255));
+				drawing.AddCircleFilled(anchor, 2.2f, IM_COL32(color.Red, color.Green, color.Blue, color.Alpha));
 			}
-			return true;
+			Layout.Persist(items);
 		}
 
 		void Map(Frame& frame)
@@ -587,7 +642,14 @@ namespace NavalCommand::TacticalDisplay
 				const auto point = Project(CenterLatitude, longitude, origin, size);
 				drawing.AddLine({point.x, origin.y}, {point.x, origin.y + size.y}, GRID_COLOR);
 			}
+			const std::string scope = frame.Perspective + "/" + frame.Session;
+			if (LayoutScope != scope)
+			{
+				Layout.Clear();
+				LayoutScope = scope;
+			}
 			MapProjection projection{*this, origin, size};
+			std::map<SymbolKey, NatoApi::Symbol> symbols;
 			if (frame.Interfaces)
 			{
 				auto& providers = *frame.Interfaces;
@@ -635,24 +697,12 @@ namespace NavalCommand::TacticalDisplay
 								alignment = *result;
 							}
 						}
-						auto symbol = NatoApi::DomainConverter::FromUnit(
-							*unit,
-							typeDefinition,
-							NatoApi::DomainConverter::FromAlignment(alignment),
-							SymbolContext);
+						auto symbol = NatoApi::DomainConverter::FromUnit(*unit, typeDefinition, NatoApi::DomainConverter::FromAlignment(alignment), SymbolContext);
 						if (!symbol)
 						{
 							continue;
 						}
-						const auto& position = *unit->Kinematics.Position;
-						DrawNatoSymbol(
-							*symbol,
-							id.Value,
-							false,
-							projection,
-							Project(position.Latitude.Value, position.Longitude.Value, origin, size),
-							origin,
-							size);
+						symbols.emplace(SymbolKey{false, id.Value}, std::move(*symbol));
 					}
 				}
 				if (auto ids = providers.Observations.GetObservationIds())
@@ -675,18 +725,12 @@ namespace NavalCommand::TacticalDisplay
 						std::optional<Classification::Api::Alignment> alignment;
 						if (observation->ObservedFaction.IsKnown())
 						{
-							if (auto result = providers.Factions.GetFactionAlignment(
-									observation->ObserverFaction,
-									observation->ObservedFaction.Value()); result)
+							if (auto result = providers.Factions.GetFactionAlignment(observation->ObserverFaction, observation->ObservedFaction.Value()); result)
 							{
 								alignment = *result;
 							}
 						}
-						auto symbol = NatoApi::DomainConverter::FromObservation(
-							*observation,
-							typeDefinition,
-							NatoApi::DomainConverter::FromAlignment(alignment),
-							SymbolContext);
+						auto symbol = NatoApi::DomainConverter::FromObservation(*observation, typeDefinition, NatoApi::DomainConverter::FromAlignment(alignment), SymbolContext);
 						if (!symbol)
 						{
 							continue;
@@ -714,11 +758,11 @@ namespace NavalCommand::TacticalDisplay
 						{
 							continue;
 						}
-						const auto point = Project(*latitude, *longitude, origin, size);
-						DrawNatoSymbol(*symbol, id.Value, true, projection, point, origin, size);
+						symbols.emplace(SymbolKey{true, id.Value}, std::move(*symbol));
 					}
 				}
 			}
+			RenderScene(symbols, projection, origin, size);
 			drawing.AddText({origin.x + 12, origin.y + size.y - 25}, IM_COL32(155, 175, 185, 255), "Right drag: pan     Wheel: zoom     Click: inspect");
 			drawing.PopClipRect();
 		}
@@ -782,9 +826,7 @@ namespace NavalCommand::TacticalDisplay
 					{
 						ImGui::Text("Type metadata lookup failed: %s", ErrorConditionName(resolvedType.error().Condition));
 					}
-					const std::string typeLabel = exactUnitType
-						? DisplayName(type->Value, exactUnitType->DisplayName, exactUnitType->AlternativeDisplayName)
-						: type->Value;
+					const std::string typeLabel = exactUnitType ? DisplayName(type->Value, exactUnitType->DisplayName, exactUnitType->AlternativeDisplayName) : type->Value;
 					ImGui::Text("Exact type: %s", typeLabel.c_str());
 					if (exactUnitType)
 					{
@@ -831,9 +873,12 @@ namespace NavalCommand::TacticalDisplay
 					std::optional<std::string> loadoutDisplayName;
 					if (exactUnitType)
 					{
-						const auto loadout = std::find_if(
-							exactUnitType->Loadouts.begin(), exactUnitType->Loadouts.end(),
-							[&loadoutId](const auto& candidate) { return candidate.Id == loadoutId; });
+						const auto loadout = std::find_if(exactUnitType->Loadouts.begin(),
+														  exactUnitType->Loadouts.end(),
+														  [&loadoutId](const auto& candidate)
+														  {
+															  return candidate.Id == loadoutId;
+														  });
 						if (loadout != exactUnitType->Loadouts.end())
 						{
 							loadoutDisplayName = loadout->DisplayName;
@@ -919,9 +964,7 @@ namespace NavalCommand::TacticalDisplay
 				ImGui::TextWrapped("Unit: %s", unit->Name.c_str());
 				ImGui::Text("Faction: %s", unit->Faction.Value.c_str());
 				auto unitType = providers.Types.GetUnitType(unit->Type);
-				const std::string typeLabel = unitType
-					? DisplayName(unit->Type.Value, unitType->DisplayName, unitType->AlternativeDisplayName)
-					: unit->Type.Value;
+				const std::string typeLabel = unitType ? DisplayName(unit->Type.Value, unitType->DisplayName, unitType->AlternativeDisplayName) : unit->Type.Value;
 				ImGui::TextWrapped("Type: %s", typeLabel.c_str());
 				if (!unitType)
 				{
@@ -930,9 +973,12 @@ namespace NavalCommand::TacticalDisplay
 				std::optional<std::string> loadoutDisplayName;
 				if (unitType)
 				{
-					const auto selectedLoadout = std::find_if(
-						unitType->Loadouts.begin(), unitType->Loadouts.end(),
-						[&unit](const auto& loadout) { return loadout.Id == unit->CurrentLoadout; });
+					const auto selectedLoadout = std::find_if(unitType->Loadouts.begin(),
+															  unitType->Loadouts.end(),
+															  [&unit](const auto& loadout)
+															  {
+																  return loadout.Id == unit->CurrentLoadout;
+															  });
 					if (selectedLoadout != unitType->Loadouts.end())
 					{
 						loadoutDisplayName = selectedLoadout->DisplayName;
@@ -945,15 +991,14 @@ namespace NavalCommand::TacticalDisplay
 				{
 					ImGui::Text("Subcategory: %s", SubCategoryName(unitType->UnitSubCategory));
 					ImGui::Text("Category: %s", CategoryName(Classification::Api::GetCategory(unitType->UnitSubCategory)));
-					ImGui::Text("Dimension: %s", DimensionName(Classification::Api::GetDimension(
-						Classification::Api::GetCategory(unitType->UnitSubCategory))));
+					ImGui::Text("Dimension: %s", DimensionName(Classification::Api::GetDimension(Classification::Api::GetCategory(unitType->UnitSubCategory))));
 					ImGui::Text("Platform roles: %s", RoleList(unitType->PlatformRoles).c_str());
-					const auto selectedLoadout = std::find_if(
-						unitType->Loadouts.begin(), unitType->Loadouts.end(),
-						[&unit](const auto& loadout)
-						{
-							return loadout.Id == unit->CurrentLoadout;
-						});
+					const auto selectedLoadout = std::find_if(unitType->Loadouts.begin(),
+															  unitType->Loadouts.end(),
+															  [&unit](const auto& loadout)
+															  {
+																  return loadout.Id == unit->CurrentLoadout;
+															  });
 					if (selectedLoadout != unitType->Loadouts.end())
 					{
 						ImGui::Text("Selected loadout roles: %s", RoleList(selectedLoadout->Roles).c_str());
@@ -980,9 +1025,8 @@ namespace NavalCommand::TacticalDisplay
 				for (const auto& equipment : unit->Equipment)
 				{
 					auto equipmentType = providers.Equipment.GetEquipmentType(equipment.Type);
-					const std::string equipmentLabel = equipmentType
-						? DisplayName(equipment.Type.Value, equipmentType->DisplayName, equipmentType->AlternativeDisplayName)
-						: equipment.Type.Value;
+					const std::string equipmentLabel =
+						equipmentType ? DisplayName(equipment.Type.Value, equipmentType->DisplayName, equipmentType->AlternativeDisplayName) : equipment.Type.Value;
 					ImGui::TextWrapped("%s", equipmentLabel.c_str());
 					ImGui::Text("State: %s / %s",
 								equipment.State == Equipment::Api::OperationalState::Active	 ? "active"
@@ -1146,6 +1190,11 @@ namespace NavalCommand::TacticalDisplay
 			ImGui::TextDisabled("|");
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(190.0f);
+			ImGui::SetNextItemWidth(150);
+			ImGui::Combo("Style", &m_State->StyleIndex, "Filled dark\0Unfilled dark\0");
+			ImGui::SameLine();
+			ImGui::TextUnformatted("|");
+			ImGui::SameLine();
 			ImGui::Combo("Labels", &m_State->LabelMode, "Only Selected\0Only Hovered\0Selected and Hovered\0Always\0");
 			ImGui::SameLine();
 			ImGui::TextDisabled("|");

@@ -46,6 +46,8 @@ namespace NavalCommand::TacticalDisplay
 		bool Stale{};
 		std::string Status;
 		std::string Perspective{"Omniscient"};
+		// Composition supplies the World session identity to invalidate presentation state.
+		std::string Session;
 	};
 
 	// Acquisition retains one coherent provider view for the whole frame.
