@@ -17,7 +17,7 @@ namespace NavalCommand::TacticalDisplay
 
 		// Test-only CPU rasterization of the real ImGui triangles and font atlas.
 		// No GPU, Sea Power, screenshot utility or runtime dependency is needed.
-		void SaveImage(const ImDrawList& drawing, const char* filename)
+		std::vector<std::array<unsigned char, 3>> SaveImage(const ImDrawList& drawing, const char* filename)
 		{
 			unsigned char* texture{};
 			int textureWidth{};
@@ -96,7 +96,8 @@ namespace NavalCommand::TacticalDisplay
 			std::ofstream image{filename, std::ios::binary};
 			image << "P6\n" << IMAGE_WIDTH << ' ' << IMAGE_HEIGHT << "\n255\n";
 			image.write(reinterpret_cast<const char*>(pixels.data()), static_cast<std::streamsize>(pixels.size() * 3));
-			ASSERT_TRUE(image.good());
+			EXPECT_TRUE(image.good());
+			return pixels;
 		}
 
 		NatoGeometry::Symbol MakeVisualSymbol(NatoGeometry::SymbolSet set, NatoGeometry::StandardIdentity identity, bool labels)
@@ -204,7 +205,19 @@ namespace NavalCommand::TacticalDisplay
 				EXPECT_TRUE(renderer.Render(symbol, context).WasDrawn);
 			}
 		}
-		SaveImage(drawing, "platform-icons.ppm");
+		const auto iconPixels = SaveImage(drawing, "platform-icons.ppm");
+		const auto blackAt = [&](int horizontal, int vertical)
+		{
+			const auto& pixel = iconPixels[vertical * IMAGE_WIDTH + horizontal];
+			return pixel[0] < 10 && pixel[1] < 10 && pixel[2] < 10;
+		};
+		// Check interior pixels, not just bounds/vertex counts: winding errors
+		// previously removed the tower and filled the gap beneath aircraft wings.
+		EXPECT_TRUE(blackAt(67, 92));	 // Carrier tower.
+		EXPECT_TRUE(blackAt(75, 107));	 // Carrier hull.
+		EXPECT_FALSE(blackAt(78, 92));	 // Space beside the tower.
+		EXPECT_TRUE(blackAt(650, 108));	 // Fixed-wing right lobe.
+		EXPECT_FALSE(blackAt(635, 113)); // Gap below the wing junction.
 		ImGui::End();
 		ImGui::EndFrame();
 		ImGui::NewFrame();

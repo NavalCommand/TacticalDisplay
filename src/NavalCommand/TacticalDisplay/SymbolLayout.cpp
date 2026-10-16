@@ -11,6 +11,8 @@ namespace NavalCommand::TacticalDisplay
 	{
 		constexpr double COLLISION_GAP_PIXELS = 4.0;
 		constexpr std::size_t MAX_CANDIDATES = 192;
+		constexpr double PLACEMENT_DEADBAND_PIXELS = 8.0;
+		constexpr double REPAIR_CLEARANCE_PIXELS = 4.0;
 		using Point = NatoGeometry::ScreenPoint;
 		using Rectangle = NatoGeometry::ScreenRectangle;
 
@@ -64,7 +66,7 @@ namespace NavalCommand::TacticalDisplay
 			}
 		};
 
-		Point Place(const LayoutItem& item, Rectangle viewport, const std::vector<Rectangle>& placed, std::span<const LayoutItem> items)
+		Point Place(const LayoutItem& item, Rectangle viewport, const std::vector<Rectangle>& placed, std::span<const LayoutItem> items, bool stabilize)
 		{
 			const auto relative = Padded(Translate(item.Geometry.LayoutBounds, {-item.VisualAnchor.X, -item.VisualAnchor.Y}));
 			const Point preferred = item.GeographicAnchor;
@@ -94,9 +96,13 @@ namespace NavalCommand::TacticalDisplay
 				}
 				return Intersects(bounds, obstacles[index]);
 			};
-			const auto clear = [&](Point anchor)
+			const auto clear = [&](Point anchor, double clearance = 0.0)
 			{
-				const auto bounds = Translate(relative, {anchor.X, anchor.Y});
+				auto bounds = Translate(relative, {anchor.X, anchor.Y});
+				bounds.Minimum.X -= clearance;
+				bounds.Minimum.Y -= clearance;
+				bounds.Maximum.X += clearance;
+				bounds.Maximum.Y += clearance;
 				for (std::size_t index = 0; index < obstacles.size(); ++index)
 				{
 					if (overlaps(anchor, bounds, index))
@@ -107,11 +113,12 @@ namespace NavalCommand::TacticalDisplay
 				return true;
 			};
 			const auto desired = Constrain(preferred, relative, viewport);
-			if (clear(desired))
+			if (!stabilize && clear(desired))
 			{
 				return desired;
 			}
 			const auto previous = Constrain(item.VisualAnchor, relative, viewport);
+			const bool previousClear = stabilize && clear(previous);
 
 			std::priority_queue<Candidate> candidates;
 			std::set<std::pair<double, double>> visited;
@@ -120,7 +127,8 @@ namespace NavalCommand::TacticalDisplay
 				candidate = Constrain(candidate, relative, viewport);
 				if (visited.size() < MAX_CANDIDATES * 4 && visited.emplace(candidate.X, candidate.Y).second)
 				{
-					candidates.push({candidate, DistanceSquared(candidate, preferred)});
+					const double repairCost = stabilize && !previousClear ? 4.0 * DistanceSquared(candidate, previous) : 0.0;
+					candidates.push({candidate, DistanceSquared(candidate, preferred) + repairCost});
 				}
 			};
 			enqueue(desired);
@@ -143,13 +151,23 @@ namespace NavalCommand::TacticalDisplay
 					overlapArea += (std::min(bounds.Maximum.X, obstacle.Maximum.X) - std::max(bounds.Minimum.X, obstacle.Minimum.X)) *
 								   (std::min(bounds.Maximum.Y, obstacle.Maximum.Y) - std::max(bounds.Minimum.Y, obstacle.Minimum.Y));
 					// Exact separating translations along each rectangle boundary.
-					enqueue({obstacle.Minimum.X - relative.Maximum.X, candidate.Anchor.Y});
-					enqueue({obstacle.Maximum.X - relative.Minimum.X, candidate.Anchor.Y});
-					enqueue({candidate.Anchor.X, obstacle.Minimum.Y - relative.Maximum.Y});
-					enqueue({candidate.Anchor.X, obstacle.Maximum.Y - relative.Minimum.Y});
+					const double clearance = stabilize ? REPAIR_CLEARANCE_PIXELS : 0.0;
+					enqueue({obstacle.Minimum.X - relative.Maximum.X - clearance, candidate.Anchor.Y});
+					enqueue({obstacle.Maximum.X - relative.Minimum.X + clearance, candidate.Anchor.Y});
+					enqueue({candidate.Anchor.X, obstacle.Minimum.Y - relative.Maximum.Y - clearance});
+					enqueue({candidate.Anchor.X, obstacle.Maximum.Y - relative.Minimum.Y + clearance});
 				}
 				if (overlapArea == 0.0)
 				{
+					if (previousClear)
+					{
+						const double improvement = std::sqrt(DistanceSquared(previous, preferred)) - std::sqrt(DistanceSquared(candidate.Anchor, preferred));
+						const double movement = std::sqrt(DistanceSquared(previous, candidate.Anchor));
+						if (improvement < PLACEMENT_DEADBAND_PIXELS + movement * 0.25 || !clear(candidate.Anchor, REPAIR_CLEARANCE_PIXELS))
+						{
+							return previous;
+						}
+					}
 					return candidate.Anchor;
 				}
 				if (overlapArea < bestOverlap)
@@ -258,6 +276,26 @@ namespace NavalCommand::TacticalDisplay
 		{
 			return;
 		}
+		const bool preservePlacements = m_LastViewport && sameRectangle(*m_LastViewport, viewport) && m_LastSolvedHover == m_Hovered &&
+										std::ranges::all_of(items,
+															[&](const LayoutItem& item)
+															{
+																const auto previous = m_Previous.find(item.Key);
+																if (previous == m_Previous.end())
+																{
+																	return true;
+																}
+																const NatoGeometry::ScreenVector shift{item.VisualAnchor.X - previous->second.VisualAnchor.X,
+																									   item.VisualAnchor.Y - previous->second.VisualAnchor.Y};
+																const auto priorLayout = Translate(previous->second.LayoutBounds, shift);
+																// Scale/icon changes and label visibility changes reflow immediately.
+																// Small changing numeric label widths retain placement hysteresis.
+																return sameRectangle(Translate(previous->second.SymbolBounds, shift), item.Geometry.SymbolBounds) &&
+																	   std::abs(priorLayout.Minimum.X - item.Geometry.LayoutBounds.Minimum.X) <= PLACEMENT_DEADBAND_PIXELS &&
+																	   std::abs(priorLayout.Minimum.Y - item.Geometry.LayoutBounds.Minimum.Y) <= PLACEMENT_DEADBAND_PIXELS &&
+																	   std::abs(priorLayout.Maximum.X - item.Geometry.LayoutBounds.Maximum.X) <= PLACEMENT_DEADBAND_PIXELS &&
+																	   std::abs(priorLayout.Maximum.Y - item.Geometry.LayoutBounds.Maximum.Y) <= PLACEMENT_DEADBAND_PIXELS;
+															});
 		m_LastViewport = viewport;
 		m_LastSolvedHover = m_Hovered;
 		std::vector<LayoutItem*> ordered;
@@ -277,7 +315,8 @@ namespace NavalCommand::TacticalDisplay
 		obstacles.reserve(items.size());
 		for (auto* item : ordered)
 		{
-			const auto anchor = IsHovered(item->Key) ? item->VisualAnchor : Place(*item, viewport, obstacles, items);
+			const bool stabilize = preservePlacements && m_Previous.contains(item->Key);
+			const auto anchor = IsHovered(item->Key) ? item->VisualAnchor : Place(*item, viewport, obstacles, items, stabilize);
 			const NatoGeometry::ScreenVector shift{anchor.X - item->VisualAnchor.X, anchor.Y - item->VisualAnchor.Y};
 			item->Geometry.LayoutBounds = Translate(item->Geometry.LayoutBounds, shift);
 			item->Geometry.SymbolBounds = Translate(item->Geometry.SymbolBounds, shift);

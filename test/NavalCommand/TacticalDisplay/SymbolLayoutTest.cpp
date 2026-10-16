@@ -1,6 +1,7 @@
 #include <NavalCommand/TacticalDisplay/SymbolLayout.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <gtest/gtest.h>
 #include <vector>
 
@@ -47,6 +48,50 @@ namespace NavalCommand::TacticalDisplay
 					EXPECT_TRUE(left.Maximum.X <= right.Minimum.X || right.Maximum.X <= left.Minimum.X || left.Maximum.Y <= right.Minimum.Y || right.Maximum.Y <= left.Minimum.Y)
 						<< items[first].Key.Id << " / " << items[second].Key.Id;
 				}
+			}
+		}
+	}
+
+	TEST(SymbolLayoutTest, SmallRelativeMotionDoesNotAlternateBetweenDistantPlacements)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("kiev", {500, 400}), MakeItem("kilo", {501, 401}), MakeItem("udaloy", {499, 401})};
+		LayoutFrame(items, layout);
+		for (int frame = 0; frame < 240; ++frame)
+		{
+			const auto previous = items;
+			for (std::size_t index = 0; index < items.size(); ++index)
+			{
+				items[index].GeographicAnchor.X += index == 0 ? 0.02 : frame % 2 == 0 ? 0.2 : -0.2;
+				items[index].GeographicAnchor.Y += frame % 2 == 0 ? 0.1 : -0.1;
+			}
+			LayoutFrame(items, layout);
+			ExpectSeparated(items);
+			for (std::size_t index = 0; index < items.size(); ++index)
+			{
+				EXPECT_LT(std::abs(items[index].VisualAnchor.X - previous[index].VisualAnchor.X), 12.0);
+				EXPECT_LT(std::abs(items[index].VisualAnchor.Y - previous[index].VisualAnchor.Y), 12.0);
+			}
+		}
+	}
+
+	TEST(SymbolLayoutTest, NewlyLaunchedAircraftDoesNotKeepSwappingWithCarrier)
+	{
+		SymbolLayout layout;
+		std::vector items{MakeItem("carrier", {500, 400})};
+		LayoutFrame(items, layout);
+		items.push_back(MakeItem("aircraft", {501, 400}));
+		LayoutFrame(items, layout);
+		for (int frame = 0; frame < 120; ++frame)
+		{
+			const auto previous = items;
+			items[0].GeographicAnchor.X += frame % 2 == 0 ? 0.15 : -0.15;
+			LayoutFrame(items, layout);
+			ExpectSeparated(items);
+			for (std::size_t index = 0; index < items.size(); ++index)
+			{
+				EXPECT_LT(std::abs(items[index].VisualAnchor.X - previous[index].VisualAnchor.X), 12.0);
+				EXPECT_LT(std::abs(items[index].VisualAnchor.Y - previous[index].VisualAnchor.Y), 12.0);
 			}
 		}
 	}

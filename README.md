@@ -36,7 +36,12 @@ and symbols can still overlap; objects remain in the tactical list and no cluste
 or aggregate symbols are created. Session and perspective changes discard layout
 state. Ordinary pan and zoom reuse offsets and allow symbols to return to their
 actual anchors as room becomes available. After geometry or hover changes, layout
-searches from the geographic anchor rather than accepting an inflated old offset.
+searches from the geographic anchor rather than accepting an inflated old offset
+after scale or label visibility changes. During ordinary object motion, spatial
+hysteresis retains a clear placement unless the displacement improvement exceeds
+an eight-pixel deadband plus one quarter of the relocation distance. Collision
+repairs prefer nearby positions and leave four pixels of extra clearance. This
+prevents small position/label changes from repeatedly swapping nearby symbols.
 
 `NavalCommand.TacticalDisplay.Test` covers layout, hover, hit testing and rendering
 integration. The visual smoke fixture writes `symbol-styles.ppm` and
